@@ -1,17 +1,22 @@
 {
-  "name": "test",
+  "name": "esp32-attendance-system",
   "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:studio": "prisma studio"
   },
   "dependencies": {
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "next": "15.3.2"
+    "next": "15.3.2",
+    "@prisma/client": "^5.7.1",
+    "prisma": "^5.7.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
