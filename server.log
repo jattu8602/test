@@ -1,0 +1,21 @@
+
+> esp32-attendance-system@0.1.0 dev
+> next dev --turbopack
+
+   ▲ Next.js 15.3.2 (Turbopack)
+   - Local:        http://localhost:3000
+   - Network:      http://192.168.40.237:3000
+   - Environments: .env
+
+ ✓ Starting...
+ ✓ Ready in 781ms
+ ○ Compiling /api/health ...
+ ✓ Compiled /api/health in 789ms
+prisma:query db.classes.aggregate([ { $group: { _id: null, count_all: { $sum: 1, }, }, }, ])
+ GET /api/health 200 in 2334ms
+ ✓ Compiled /api/classes in 304ms
+prisma:query db.classes.aggregate([ { $group: { _id: null, count_all: { $sum: 1, }, }, }, ])
+🔄 Fetching fresh classes data from database
+prisma:query db.classes.aggregate([ { $sort: { createdAt: -1, }, }, { $project: { _id: 1, name: 1, startRoll: 1, createdAt: 1, updatedAt: 1, }, }, ])
+✅ Successfully fetched 0 classes
+ GET /api/classes 200 in 469ms
