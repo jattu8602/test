@@ -191,39 +191,51 @@ class AttendanceBLEServer:
             # Handle different return formats from gatts_register_services
             result = self.ble.gatts_register_services(services)
             print(f"BLE register result: {result}")
+            print(f"Result type: {type(result)}, length: {len(result) if hasattr(result, '__len__') else 'N/A'}")
 
-            # Try different unpacking methods based on MicroPython version
-            if isinstance(result, tuple) and len(result) == 2:
+            # Parse the result based on the actual format returned
+            char_handles = None
+
+            # Handle the case ((16, 19, 21, 24),) - nested tuple with char handles
+            if isinstance(result, tuple) and len(result) == 1:
+                if isinstance(result[0], (tuple, list)) and len(result[0]) >= 4:
+                    # This is the format we're seeing: ((16, 19, 21, 24),)
+                    char_handles = result[0]
+                    self.service_handle = None  # Service handle not returned in this format
+                    print(f"Found nested tuple format with char handles: {char_handles}")
+                else:
+                    raise Exception(f"Unexpected single-element tuple format: {result}")
+
+            # Handle the case (service_handles, char_handles)
+            elif isinstance(result, tuple) and len(result) == 2:
                 service_handles, char_handles = result
                 if isinstance(service_handles, (list, tuple)) and len(service_handles) > 0:
                     self.service_handle = service_handles[0]
                 else:
                     self.service_handle = service_handles
+                print(f"Found service+char handles format: service={self.service_handle}, chars={char_handles}")
+
+            # Handle flat list/tuple format
+            elif isinstance(result, (list, tuple)) and len(result) >= 4:
+                char_handles = result
+                self.service_handle = None
+                print(f"Found flat format with char handles: {char_handles}")
+
             else:
-                # Fallback for older/different MicroPython versions
-                self.service_handle = result[0] if isinstance(result, (list, tuple)) else result
-                char_handles = result[1] if len(result) > 1 else []
+                raise Exception(f"Unsupported result format: {result}")
 
             # Store characteristic handles
             if char_handles and len(char_handles) >= 4:
-                if isinstance(char_handles[0], (list, tuple)):
-                    # Nested structure: [[char1_handle], [char2_handle], ...]
-                    self.char_handles = {
-                        'class_data': char_handles[0][0],
-                        'storage_info': char_handles[1][0],
-                        'attendance_data': char_handles[2][0],
-                        'command': char_handles[3][0]
-                    }
-                else:
-                    # Flat structure: [char1_handle, char2_handle, ...]
-                    self.char_handles = {
-                        'class_data': char_handles[0],
-                        'storage_info': char_handles[1],
-                        'attendance_data': char_handles[2],
-                        'command': char_handles[3]
-                    }
+                # Use the handles directly (they should be integers)
+                self.char_handles = {
+                    'class_data': char_handles[0],
+                    'storage_info': char_handles[1],
+                    'attendance_data': char_handles[2],
+                    'command': char_handles[3]
+                }
+                print(f"Assigned characteristic handles: {self.char_handles}")
             else:
-                raise Exception(f"Invalid characteristic handles: {char_handles}")
+                raise Exception(f"Invalid or insufficient characteristic handles: {char_handles}")
 
             print("GATT services registered successfully")
             print(f"Service handle: {self.service_handle}")
