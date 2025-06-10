@@ -12,6 +12,16 @@ class Config:
     BUTTON_ABSENT_PIN = 33   # Red button for marking absent
     BUTTON_BACK_PIN = 35     # Back/Cancel button
 
+    # ========== CUSTOMIZE YOUR PINS HERE ==========
+    # If your buttons are wired differently, change these pin numbers:
+    # BUTTON_UP_PIN = 25      # Change to your UP button pin
+    # BUTTON_DOWN_PIN = 26    # Change to your DOWN button pin
+    # BUTTON_SELECT_PIN = 27  # Change to your SELECT button pin
+    # BUTTON_PRESENT_PIN = 32 # Change to your PRESENT button pin
+    # BUTTON_ABSENT_PIN = 33  # Change to your ABSENT button pin
+    # BUTTON_BACK_PIN = 35    # Change to your BACK button pin
+    # ===============================================
+
     # OLED Display I2C Configuration
     I2C_SDA_PIN = 21
     I2C_SCL_PIN = 22
