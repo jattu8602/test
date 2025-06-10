@@ -168,53 +168,97 @@ class AttendanceBLEServer:
 
     def _register_services(self):
         """Register GATT services and characteristics"""
-        # Convert UUIDs to bytes
-        service_uuid = bluetooth.UUID(Config.BLE_SERVICE_UUID)
-        class_data_uuid = bluetooth.UUID(Config.CHAR_CLASS_DATA_UUID)
-        storage_info_uuid = bluetooth.UUID(Config.CHAR_STORAGE_INFO_UUID)
-        attendance_data_uuid = bluetooth.UUID(Config.CHAR_ATTENDANCE_DATA_UUID)
-        command_uuid = bluetooth.UUID(Config.CHAR_COMMAND_UUID)
+        try:
+            # Convert UUIDs to bytes
+            service_uuid = bluetooth.UUID(Config.BLE_SERVICE_UUID)
+            class_data_uuid = bluetooth.UUID(Config.CHAR_CLASS_DATA_UUID)
+            storage_info_uuid = bluetooth.UUID(Config.CHAR_STORAGE_INFO_UUID)
+            attendance_data_uuid = bluetooth.UUID(Config.CHAR_ATTENDANCE_DATA_UUID)
+            command_uuid = bluetooth.UUID(Config.CHAR_COMMAND_UUID)
 
-        # Define characteristics
-        # (uuid, flags)
-        characteristics = [
-            (class_data_uuid, bluetooth.FLAG_READ | bluetooth.FLAG_WRITE | bluetooth.FLAG_NOTIFY),
-            (storage_info_uuid, bluetooth.FLAG_READ),
-            (attendance_data_uuid, bluetooth.FLAG_READ | bluetooth.FLAG_NOTIFY),
-            (command_uuid, bluetooth.FLAG_WRITE | bluetooth.FLAG_NOTIFY),
-        ]
+            # Define characteristics
+            # (uuid, flags)
+            characteristics = [
+                (class_data_uuid, bluetooth.FLAG_READ | bluetooth.FLAG_WRITE | bluetooth.FLAG_NOTIFY),
+                (storage_info_uuid, bluetooth.FLAG_READ),
+                (attendance_data_uuid, bluetooth.FLAG_READ | bluetooth.FLAG_NOTIFY),
+                (command_uuid, bluetooth.FLAG_WRITE | bluetooth.FLAG_NOTIFY),
+            ]
 
-        # Register service
-        services = [(service_uuid, characteristics)]
-        ((self.service_handle,), char_handles) = self.ble.gatts_register_services(services)
+            # Register service
+            services = [(service_uuid, characteristics)]
 
-        # Store characteristic handles
-        self.char_handles = {
-            'class_data': char_handles[0][0],
-            'storage_info': char_handles[1][0],
-            'attendance_data': char_handles[2][0],
-            'command': char_handles[3][0]
-        }
+            # Handle different return formats from gatts_register_services
+            result = self.ble.gatts_register_services(services)
+            print(f"BLE register result: {result}")
 
-        print("GATT services registered")
+            # Try different unpacking methods based on MicroPython version
+            if isinstance(result, tuple) and len(result) == 2:
+                service_handles, char_handles = result
+                if isinstance(service_handles, (list, tuple)) and len(service_handles) > 0:
+                    self.service_handle = service_handles[0]
+                else:
+                    self.service_handle = service_handles
+            else:
+                # Fallback for older/different MicroPython versions
+                self.service_handle = result[0] if isinstance(result, (list, tuple)) else result
+                char_handles = result[1] if len(result) > 1 else []
+
+            # Store characteristic handles
+            if char_handles and len(char_handles) >= 4:
+                if isinstance(char_handles[0], (list, tuple)):
+                    # Nested structure: [[char1_handle], [char2_handle], ...]
+                    self.char_handles = {
+                        'class_data': char_handles[0][0],
+                        'storage_info': char_handles[1][0],
+                        'attendance_data': char_handles[2][0],
+                        'command': char_handles[3][0]
+                    }
+                else:
+                    # Flat structure: [char1_handle, char2_handle, ...]
+                    self.char_handles = {
+                        'class_data': char_handles[0],
+                        'storage_info': char_handles[1],
+                        'attendance_data': char_handles[2],
+                        'command': char_handles[3]
+                    }
+            else:
+                raise Exception(f"Invalid characteristic handles: {char_handles}")
+
+            print("GATT services registered successfully")
+            print(f"Service handle: {self.service_handle}")
+            print(f"Characteristic handles: {self.char_handles}")
+
+        except Exception as e:
+            print(f"Error registering GATT services: {e}")
+            raise
 
     def _advertise(self):
         """Start BLE advertising"""
-        name = Config.BLE_DEVICE_NAME
-        adv_data = bytearray()
+        try:
+            name = Config.BLE_DEVICE_NAME
+            adv_data = bytearray()
 
-        # Flags
-        adv_data.extend(b'\x02\x01\x06')
+            # Flags (General Discoverable Mode, BR/EDR Not Supported)
+            adv_data.extend(b'\x02\x01\x06')
 
-        # Complete local name
-        adv_data.extend(bytes([len(name) + 1, 0x09]) + name.encode())
+            # Complete local name
+            name_bytes = name.encode('utf-8')
+            adv_data.extend(bytes([len(name_bytes) + 1, 0x09]) + name_bytes)
 
-        # Service UUID
-        service_uuid_bytes = bytes.fromhex(Config.BLE_SERVICE_UUID.replace('-', ''))
-        adv_data.extend(bytes([17, 0x06]) + service_uuid_bytes)
+            # Start advertising with simple data first
+            self.ble.gap_advertise(100, adv_data)
+            print(f"Advertising as: {name}")
 
-        self.ble.gap_advertise(100, adv_data)
-        print(f"Advertising as: {name}")
+        except Exception as e:
+            print(f"Error starting advertising: {e}")
+            # Try minimal advertising as fallback
+            try:
+                self.ble.gap_advertise(100)
+                print("Started minimal advertising")
+            except Exception as e2:
+                print(f"Failed to start even minimal advertising: {e2}")
+                raise
 
     def start(self):
         """Start the BLE server"""
