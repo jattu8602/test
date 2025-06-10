@@ -42,7 +42,9 @@ class AttendanceBLEServer:
             conn_handle, addr_type, addr = data
             self.conn_handle = conn_handle
             self.connected = True
-            print(f"Client connected: {':'.join(['%02x' % b for b in addr])}")
+            # Build “aa:bb:cc:…” from the bytearray ‘addr’
+            addr_str = ":".join("{:02x}".format(b) for b in addr)
+            print("Client connected: {}".format(addr_str))
 
         elif event == _IRQ_CENTRAL_DISCONNECT:
             conn_handle, addr_type, addr = data
