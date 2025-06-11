@@ -79,7 +79,11 @@ class AttendanceBLEServer:
 
             # Debug: show what we received
             print(f"Received {len(value)} bytes for handle {value_handle}")
-            print(f"Raw bytes: {[hex(b) for b in value[:20]]}")  # Show first 20 bytes
+
+            # Only show raw bytes for first few chunks to avoid spam
+            if len(self.rx_buffers[value_handle]) <= 100:
+                print(f"Raw bytes: {[hex(b) for b in value]}")
+
             print(f"Buffer now has {len(self.rx_buffers[value_handle])} bytes")
 
             # Try to decode and find complete JSON messages
@@ -87,35 +91,33 @@ class AttendanceBLEServer:
                 buffer_str = self.rx_buffers[value_handle].decode('utf-8')
             except UnicodeDecodeError as e:
                 print(f"Unicode decode error at position {e.start}: waiting for more data")
-                print(f"Error bytes: {[hex(b) for b in self.rx_buffers[value_handle][max(0, e.start-5):e.start+5]]}")
                 # Don't process anything yet, wait for more data
                 return
 
             # Debug: show buffer content (truncated for readability)
-            display_buffer = buffer_str
-            if len(display_buffer) > 100:
-                display_buffer = display_buffer[:100] + f"... ({len(buffer_str)} total chars)"
+            if len(buffer_str) > 200:
+                display_buffer = buffer_str[:100] + f"...({len(buffer_str)} total chars)..." + buffer_str[-50:]
+            else:
+                display_buffer = buffer_str
             print(f"Buffer content: '{display_buffer}'")
 
-            # Look for complete JSON messages (ending with newline or specific delimiter)
-            # We'll use '\n' as message delimiter
-            messages = buffer_str.split('\n')
+            # Look for complete JSON messages (ending with newline)
+            if '\n' in buffer_str:
+                messages = buffer_str.split('\n')
 
-            print(f"Split into {len(messages)} parts:")
-            for i, msg in enumerate(messages):
-                print(f"  Part {i}: '{msg[:50]}{'...' if len(msg) > 50 else ''}' (len={len(msg)})")
+                print(f"Found newline! Split into {len(messages)} parts:")
+                for i, msg in enumerate(messages[:3]):  # Show only first 3 parts
+                    print(f"  Part {i}: '{msg[:50]}{'...' if len(msg) > 50 else ''}' (len={len(msg)})")
 
-            # Process complete messages (all but the last one, which might be incomplete)
-            for i in range(len(messages) - 1):
-                message = messages[i].strip()
-                if message:  # Skip empty messages
-                    print(f"\n🔍 Processing complete message {i+1}:")
-                    print(f"Message length: {len(message)} characters")
-                    print(f"Message preview: '{message[:100]}{'...' if len(message) > 100 else ''}'")
-                    self._process_complete_message(value_handle, message)
+                # Process complete messages (all but the last one, which might be incomplete)
+                for i in range(len(messages) - 1):
+                    message = messages[i].strip()
+                    if message:  # Skip empty messages
+                        print(f"\n🔍 Processing complete message {i+1}:")
+                        print(f"Message length: {len(message)} characters")
+                        self._process_complete_message(value_handle, message)
 
-            # Keep the last (potentially incomplete) message in buffer
-            if messages:
+                # Keep the last (potentially incomplete) message in buffer
                 remaining = messages[-1]
                 self.rx_buffers[value_handle] = bytearray(remaining.encode('utf-8'))
                 if remaining:
@@ -123,15 +125,12 @@ class AttendanceBLEServer:
                 else:
                     print("Buffer cleared - message was complete")
             else:
-                self.rx_buffers[value_handle] = bytearray()
-                print("Buffer cleared")
+                print("No newline found yet, waiting for more data...")
 
         except Exception as e:
             print(f"Error handling write: {e}")
             print(f"Error type: {type(e)}")
-            import sys
-            sys.print_exception(e)  # Full stack trace
-            # Clear buffer on error
+            # Clear buffer on error to prevent corruption
             if value_handle in self.rx_buffers:
                 del self.rx_buffers[value_handle]
                 print("Cleared buffer due to error")
@@ -240,9 +239,12 @@ class AttendanceBLEServer:
                 }) + "\n"
 
             elif command == 'get_status':
+                classes = self.data_manager.get_classes()
+                total_students = sum(len(c.get('students', [])) for c in classes)
                 status = {
                     "device_name": Config.BLE_DEVICE_NAME,
-                    "classes_count": len(self.data_manager.get_classes()),
+                    "classes_count": len(classes),
+                    "total_students": total_students,
                     "storage": Config.get_storage_info(),
                     "memory_free": self._get_memory_info()
                 }

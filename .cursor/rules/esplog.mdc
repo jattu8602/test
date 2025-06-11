@@ -1,0 +1,84 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+>>> %Run -c $EDITOR_CONTENT
+MPY: soft reboot
+ESP32 Attendance System - Boot
+==============================
+Free memory: 111008 bytes
+Allocated memory: 2416 bytes
+WiFi disabled - using Bluetooth only
+CPU frequency set to: 240000000 Hz
+File system: ['ble_server.py', 'boot.py', 'button_handler.py', 'config.py', 'data_manager.py', 'display_manager.py', 'main.py', 'randomdata.json', 'ssd1306.py', 'test_data_transfer.py', 'troubleshooting_guide.py']
+Boot completed - starting main application...
+==================================================
+Initializing ESP32 Attendance System...
+No classes file found, starting with empty data
+No attendance file found, starting with empty data
+Data manager initialized
+Display manager initialized
+Button handler initialized
+BLE Server initialized
+System initialized successfully!
+BLE register result: ((16, 19, 21, 24),)
+Result type: <class 'tuple'>, length: N/A
+Found nested tuple format with char handles: (16, 19, 21, 24)
+Assigned characteristic handles: {'class_data': 16, 'storage_info': 19, 'attendance_data': 21, 'command': 24}
+GATT services registered successfully
+Service handle: None
+Characteristic handles: {'class_data': 16, 'storage_info': 19, 'attendance_data': 21, 'command': 24}
+Advertising as: ESP32-Attendance
+BLE server started successfully
+Button pressed: BACK
+Client connected: 53:d2:d6:a4:85:37
+Received 20 bytes for handle 24
+Raw bytes: ['0x7b', '0x22', '0x63', '0x6f', '0x6d', '0x6d', '0x61', '0x6e', '0x64', '0x22', '0x3a', '0x22', '0x67', '0x65', '0x74', '0x5f', '0x73', '0x74', '0x61', '0x74']
+Buffer now has 20 bytes
+Buffer content: '{"command":"get_stat'
+Split into 1 parts:
+  Part 0: '{"command":"get_stat' (len=20)
+Keeping in buffer: '{"command":"get_stat' (len=20)
+Received 20 bytes for handle 16
+Raw bytes: ['0x5b', '0x7b', '0x22', '0x69', '0x64', '0x22', '0x3a', '0x22', '0x36', '0x38', '0x34', '0x39', '0x34', '0x39', '0x33', '0x39', '0x34', '0x61', '0x37', '0x39']
+Buffer now has 20 bytes
+Buffer content: '[{"id":"684949394a79'
+Split into 1 parts:
+  Part 0: '[{"id":"684949394a79' (len=20)
+Keeping in buffer: '[{"id":"684949394a79' (len=20)
+Received 20 bytes for handle 16
+Raw bytes: ['0x61', '0x6d', '0x65', '0x22', '0x3a', '0x22', '0x6e', '0x69', '0x74', '0x69', '0x6e', '0x22', '0x7d', '0x5d', '0x7d', '0x2c', '0x7b', '0x22', '0x69', '0x64']
+Buffer now has 40 bytes
+Buffer content: '[{"id":"684949394a79ame":"nitin"}]},{"id'
+Split into 1 parts:
+  Part 0: '[{"id":"684949394a79ame":"nitin"}]},{"id' (len=40)
+Keeping in buffer: '[{"id":"684949394a79ame":"nitin"}]},{"id' (len=40)
+                                                                ceived 20 bytes for handle 16
+Raw bytes: ['0x7b', '0x22', '0x72', '0x6f', '0x6c', '0x6c', '0x22', '0x3a', '0x32', '0x2c', '0x22', '0x6e', '0x61', '0x6d', '0x65', '0x22', '0x3a', '0x22', '0x6a', '0x61']
+Buffer now has 60 bytes
+Buffer content: '[{"id":"684949394a79ame":"nitin"}]},{"id{"roll":2,"name":"ja'
+Split into 1 parts:
+  Part 0: '[{"id":"684949394a79ame":"nitin"}]},{"id{"roll":2,...' (len=60)
+Keeping in buffer: '[{"id":"684949394a79ame":"nitin"}]},{"id{"roll":2,...' (len=60)
+Received 20 bytes for handle 16
+Raw bytes: ['0x5b', '0x7b', '0x22', '0x69', '0x64', '0x22', '0x3a', '0x22', '0x36', '0x38', '0x34', '0x39', '0x34', '0x39', '0x33', '0x39', '0x34', '0x61', '0x37', '0x39']
+Buffer now has 80 bytes
+Buffer content: '[{"id":"684949394a79ame":"nitin"}]},{"id{"roll":2,"name":"ja[{"id":"684949394a79'
+Split into 1 parts:
+  Part 0: '[{"id":"684949394a79ame":"nitin"}]},{"id{"roll":2,...' (len=80)
+Keeping in buffer: '[{"id":"684949394a79ame":"nitin"}]},{"id{"roll":2,...' (len=80)
+Received 20 bytes for handle 16
+Raw bytes: ['0x61', '0x6d', '0x65', '0x22', '0x3a', '0x22', '0x6e', '0x69', '0x74', '0x69', '0x6e', '0x22', '0x7d', '0x5d', '0x7d', '0x2c', '0x7b', '0x22', '0x69', '0x64']
+Buffer now has 100 bytes
+Buffer content: '[{"id":"684949394a79ame":"nitin"}]},{"id{"roll":2,"name":"ja[{"id":"684949394a79ame":"nitin"}]},{"id'
+Split into 1 parts:
+  Part 0: '[{"id":"684949394a79ame":"nitin"}]},{"id{"roll":2,...' (len=100)
+Keeping in buffer: '[{"id":"684949394a79ame":"nitin"}]},{"id{"roll":2,...' (len=100)
+Received 20 bytes for handle 16
+Raw bytes: ['0x7b', '0x22', '0x72', '0x6f', '0x6c', '0x6c', '0x22', '0x3a', '0x32', '0x2c', '0x22', '0x6e', '0x61', '0x6d', '0x65', '0x22', '0x3a', '0x22', '0x6a', '0x61']
+Buffer now has 120 bytes
+Buffer content: '[{"id":"684949394a79ame":"nitin"}]},{"id{"roll":2,"name":"ja[{"id":"684949394a79ame":"nitin"}]},{"id... (120 total chars)'
+Split into 1 parts:
+  Part 0: '[{"id":"684949394a79ame":"nitin"}]},{"id{"roll":2,...' (len=120)
+Keeping in buffer: '[{"id":"684949394a79ame":"nitin"}]},{"id{"roll":2,...' (len=120)

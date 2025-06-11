@@ -110,7 +110,9 @@ export default function BluetoothManager({ classes, onClassesUpdate }) {
       await syncDataToESP32(esp32Data)
       setSyncedData(esp32Data)
 
-      // Refresh storage info after sync
+      // Refresh device info and storage info after sync
+      const status = await bluetoothManager.getDeviceStatus()
+      setDeviceInfo(status)
       await refreshStorageInfo()
 
       alert('Data synced successfully to ESP32!')
@@ -365,13 +367,21 @@ export default function BluetoothManager({ classes, onClassesUpdate }) {
                 <p className="text-sm text-gray-600">
                   Send {classes.length} classes with all student data to ESP32
                 </p>
+                {deviceInfo && deviceInfo.classes_count > 0 && (
+                  <p className="text-sm text-green-600 font-medium mt-1">
+                    ✅ {deviceInfo.classes_count} classes currently on ESP32
+                  </p>
+                )}
               </div>
               <button
                 onClick={handleSyncData}
                 disabled={loading || classes.length === 0}
-                className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 disabled:opacity-50"
+                className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center space-x-2"
               >
-                {loading ? 'Syncing...' : 'Sync Data'}
+                {loading && (
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                )}
+                <span>{loading ? 'Syncing...' : 'Sync Data'}</span>
               </button>
             </div>
 
@@ -403,9 +413,14 @@ export default function BluetoothManager({ classes, onClassesUpdate }) {
               <button
                 onClick={handleDownloadAttendance}
                 disabled={loading}
-                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center space-x-2"
               >
-                {loading ? 'Downloading...' : 'Download Attendance'}
+                {loading && (
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                )}
+                <span>
+                  {loading ? 'Downloading...' : 'Download Attendance'}
+                </span>
               </button>
             </div>
 
@@ -431,9 +446,12 @@ export default function BluetoothManager({ classes, onClassesUpdate }) {
                             handleSaveAttendance(classId, data.records)
                           }
                           disabled={loading}
-                          className="bg-green-600 text-white px-3 py-1 text-sm rounded hover:bg-green-700 disabled:opacity-50"
+                          className="bg-green-600 text-white px-3 py-1 text-sm rounded hover:bg-green-700 disabled:opacity-50 flex items-center space-x-1"
                         >
-                          Save to Database
+                          {loading && (
+                            <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white"></div>
+                          )}
+                          <span>Save to Database</span>
                         </button>
                       </div>
 
