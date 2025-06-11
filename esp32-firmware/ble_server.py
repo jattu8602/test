@@ -77,33 +77,50 @@ class AttendanceBLEServer:
             # Append new data to buffer
             self.rx_buffers[value_handle].extend(value)
 
+            # Debug: show what we received
+            print(f"Received {len(value)} bytes for handle {value_handle}")
+            print(f"Buffer now has {len(self.rx_buffers[value_handle])} bytes")
+
             # Try to decode and find complete JSON messages
-            buffer_str = self.rx_buffers[value_handle].decode('utf-8')
+            try:
+                buffer_str = self.rx_buffers[value_handle].decode('utf-8')
+            except UnicodeDecodeError as e:
+                print(f"Unicode decode error at position {e.start}: waiting for more data")
+                # Don't process anything yet, wait for more data
+                return
+
+            # Debug: show buffer content
+            print(f"Buffer content: '{buffer_str[:100]}{'...' if len(buffer_str) > 100 else ''}'")
 
             # Look for complete JSON messages (ending with newline or specific delimiter)
             # We'll use '\n' as message delimiter
             messages = buffer_str.split('\n')
 
+            print(f"Split into {len(messages)} parts")
+
             # Process complete messages (all but the last one, which might be incomplete)
             for i in range(len(messages) - 1):
                 message = messages[i].strip()
                 if message:  # Skip empty messages
+                    print(f"Processing complete message {i+1}: '{message[:50]}{'...' if len(message) > 50 else ''}'")
                     self._process_complete_message(value_handle, message)
 
             # Keep the last (potentially incomplete) message in buffer
             if messages:
                 remaining = messages[-1]
                 self.rx_buffers[value_handle] = bytearray(remaining.encode('utf-8'))
+                print(f"Keeping in buffer: '{remaining[:50]}{'...' if len(remaining) > 50 else ''}'")
             else:
                 self.rx_buffers[value_handle] = bytearray()
+                print("Buffer cleared")
 
-        except UnicodeDecodeError:
-            print("Unicode decode error - waiting for more data")
         except Exception as e:
             print(f"Error handling write: {e}")
+            print(f"Error type: {type(e)}")
             # Clear buffer on error
             if value_handle in self.rx_buffers:
                 del self.rx_buffers[value_handle]
+                print("Cleared buffer due to error")
 
     def _process_complete_message(self, value_handle, message):
         """Process a complete JSON message"""
