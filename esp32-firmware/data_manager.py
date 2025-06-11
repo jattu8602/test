@@ -75,6 +75,10 @@ class DataManager:
                 return class_item
         return None
 
+
+
+
+
     def save_attendance(self, class_id, attendance_records):
         """Save attendance data for a specific class"""
         try:
