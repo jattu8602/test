@@ -79,6 +79,7 @@ class AttendanceBLEServer:
 
             # Debug: show what we received
             print(f"Received {len(value)} bytes for handle {value_handle}")
+            print(f"Raw bytes: {[hex(b) for b in value[:20]]}")  # Show first 20 bytes
             print(f"Buffer now has {len(self.rx_buffers[value_handle])} bytes")
 
             # Try to decode and find complete JSON messages
@@ -86,30 +87,41 @@ class AttendanceBLEServer:
                 buffer_str = self.rx_buffers[value_handle].decode('utf-8')
             except UnicodeDecodeError as e:
                 print(f"Unicode decode error at position {e.start}: waiting for more data")
+                print(f"Error bytes: {[hex(b) for b in self.rx_buffers[value_handle][max(0, e.start-5):e.start+5]]}")
                 # Don't process anything yet, wait for more data
                 return
 
-            # Debug: show buffer content
-            print(f"Buffer content: '{buffer_str[:100]}{'...' if len(buffer_str) > 100 else ''}'")
+            # Debug: show buffer content (truncated for readability)
+            display_buffer = buffer_str
+            if len(display_buffer) > 100:
+                display_buffer = display_buffer[:100] + f"... ({len(buffer_str)} total chars)"
+            print(f"Buffer content: '{display_buffer}'")
 
             # Look for complete JSON messages (ending with newline or specific delimiter)
             # We'll use '\n' as message delimiter
             messages = buffer_str.split('\n')
 
-            print(f"Split into {len(messages)} parts")
+            print(f"Split into {len(messages)} parts:")
+            for i, msg in enumerate(messages):
+                print(f"  Part {i}: '{msg[:50]}{'...' if len(msg) > 50 else ''}' (len={len(msg)})")
 
             # Process complete messages (all but the last one, which might be incomplete)
             for i in range(len(messages) - 1):
                 message = messages[i].strip()
                 if message:  # Skip empty messages
-                    print(f"Processing complete message {i+1}: '{message[:50]}{'...' if len(message) > 50 else ''}'")
+                    print(f"\n🔍 Processing complete message {i+1}:")
+                    print(f"Message length: {len(message)} characters")
+                    print(f"Message preview: '{message[:100]}{'...' if len(message) > 100 else ''}'")
                     self._process_complete_message(value_handle, message)
 
             # Keep the last (potentially incomplete) message in buffer
             if messages:
                 remaining = messages[-1]
                 self.rx_buffers[value_handle] = bytearray(remaining.encode('utf-8'))
-                print(f"Keeping in buffer: '{remaining[:50]}{'...' if len(remaining) > 50 else ''}'")
+                if remaining:
+                    print(f"Keeping in buffer: '{remaining[:50]}{'...' if len(remaining) > 50 else ''}' (len={len(remaining)})")
+                else:
+                    print("Buffer cleared - message was complete")
             else:
                 self.rx_buffers[value_handle] = bytearray()
                 print("Buffer cleared")
@@ -117,6 +129,8 @@ class AttendanceBLEServer:
         except Exception as e:
             print(f"Error handling write: {e}")
             print(f"Error type: {type(e)}")
+            import sys
+            sys.print_exception(e)  # Full stack trace
             # Clear buffer on error
             if value_handle in self.rx_buffers:
                 del self.rx_buffers[value_handle]
