@@ -30,8 +30,8 @@ class AttendanceBLEServer:
         self.service_handle = None
         self.char_handles = {}
 
-        # Data buffers
-        self.rx_buffer = bytearray()
+        # Data buffers for handling chunked transfers
+        self.rx_buffers = {}  # Separate buffer for each characteristic
         self.tx_buffer = bytearray()
 
         print("BLE Server initialized")
@@ -42,7 +42,9 @@ class AttendanceBLEServer:
             conn_handle, addr_type, addr = data
             self.conn_handle = conn_handle
             self.connected = True
-            # Build “aa:bb:cc:…” from the bytearray ‘addr’
+            # Clear buffers on new connection
+            self.rx_buffers = {}
+            # Build "aa:bb:cc:…" from the bytearray 'addr'
             addr_str = ":".join("{:02x}".format(b) for b in addr)
             print("Client connected: {}".format(addr_str))
 
@@ -50,6 +52,8 @@ class AttendanceBLEServer:
             conn_handle, addr_type, addr = data
             self.connected = False
             self.conn_handle = None
+            # Clear buffers on disconnect
+            self.rx_buffers = {}
             print("Client disconnected")
             # Restart advertising
             self._advertise()
@@ -64,17 +68,59 @@ class AttendanceBLEServer:
             self._handle_read(value_handle)
 
     def _handle_write(self, value_handle, value):
-        """Handle write requests from client"""
+        """Handle write requests from client with proper buffering"""
         try:
-            data = value.decode('utf-8')
+            # Initialize buffer for this characteristic if needed
+            if value_handle not in self.rx_buffers:
+                self.rx_buffers[value_handle] = bytearray()
 
-            if value_handle == self.char_handles['class_data']:
-                self._handle_class_data_write(data)
-            elif value_handle == self.char_handles['command']:
-                self._handle_command_write(data)
+            # Append new data to buffer
+            self.rx_buffers[value_handle].extend(value)
 
+            # Try to decode and find complete JSON messages
+            buffer_str = self.rx_buffers[value_handle].decode('utf-8')
+
+            # Look for complete JSON messages (ending with newline or specific delimiter)
+            # We'll use '\n' as message delimiter
+            messages = buffer_str.split('\n')
+
+            # Process complete messages (all but the last one, which might be incomplete)
+            for i in range(len(messages) - 1):
+                message = messages[i].strip()
+                if message:  # Skip empty messages
+                    self._process_complete_message(value_handle, message)
+
+            # Keep the last (potentially incomplete) message in buffer
+            if messages:
+                remaining = messages[-1]
+                self.rx_buffers[value_handle] = bytearray(remaining.encode('utf-8'))
+            else:
+                self.rx_buffers[value_handle] = bytearray()
+
+        except UnicodeDecodeError:
+            print("Unicode decode error - waiting for more data")
         except Exception as e:
             print(f"Error handling write: {e}")
+            # Clear buffer on error
+            if value_handle in self.rx_buffers:
+                del self.rx_buffers[value_handle]
+
+    def _process_complete_message(self, value_handle, message):
+        """Process a complete JSON message"""
+        try:
+            # Try to parse as JSON
+            json.loads(message)  # Validate JSON first
+
+            if value_handle == self.char_handles['class_data']:
+                self._handle_class_data_write(message)
+            elif value_handle == self.char_handles['command']:
+                self._handle_command_write(message)
+
+        except ValueError as e:
+            print(f"JSON parse error: {e}")
+            print(f"Message: {message[:100]}...")  # Print first 100 chars for debugging
+        except Exception as e:
+            print(f"Error processing message: {e}")
 
     def _handle_read(self, value_handle):
         """Handle read requests from client"""
@@ -87,10 +133,35 @@ class AttendanceBLEServer:
             elif value_handle == self.char_handles['attendance_data']:
                 attendance_data = self.data_manager.get_all_attendance()
                 response = json.dumps(attendance_data)
-                self.ble.gatts_write(value_handle, response.encode('utf-8'))
+                # For large responses, we might need to implement chunking here too
+                self._send_chunked_response(value_handle, response)
 
         except Exception as e:
             print(f"Error handling read: {e}")
+
+    def _send_chunked_response(self, value_handle, response):
+        """Send response in chunks if it's too large"""
+        try:
+            response_bytes = response.encode('utf-8')
+            chunk_size = 100  # Conservative chunk size for BLE
+
+            if len(response_bytes) <= chunk_size:
+                # Send in one piece
+                self.ble.gatts_write(value_handle, response_bytes)
+            else:
+                # Send in chunks with delimiter
+                for i in range(0, len(response_bytes), chunk_size):
+                    chunk = response_bytes[i:i + chunk_size]
+                    if i + chunk_size >= len(response_bytes):
+                        # Last chunk - add newline delimiter
+                        chunk += b'\n'
+                    self.ble.gatts_write(value_handle, chunk)
+                    time.sleep_ms(10)  # Small delay between chunks
+
+        except Exception as e:
+            print(f"Error sending chunked response: {e}")
+            # Fallback to simple write
+            self.ble.gatts_write(value_handle, response.encode('utf-8'))
 
     def _handle_class_data_write(self, data):
         """Handle class data synchronization"""
@@ -101,9 +172,9 @@ class AttendanceBLEServer:
             if success:
                 print(f"Synced {len(classes_data)} classes")
                 # Send confirmation
-                response = json.dumps({"status": "success", "message": "Data synced successfully"})
+                response = json.dumps({"status": "success", "message": "Data synced successfully"}) + "\n"
             else:
-                response = json.dumps({"status": "error", "message": "Failed to save data"})
+                response = json.dumps({"status": "error", "message": "Failed to save data"}) + "\n"
 
             # Notify client of result
             if self.connected:
@@ -111,7 +182,7 @@ class AttendanceBLEServer:
 
         except Exception as e:
             print(f"Error syncing class data: {e}")
-            response = json.dumps({"status": "error", "message": str(e)})
+            response = json.dumps({"status": "error", "message": str(e)}) + "\n"
             if self.connected:
                 self.ble.gatts_notify(self.conn_handle, self.char_handles['class_data'], response.encode('utf-8'))
 
@@ -128,14 +199,14 @@ class AttendanceBLEServer:
                     "status": "success" if success else "error",
                     "command": command,
                     "class_id": class_id
-                })
+                }) + "\n"
 
             elif command == 'clear_all_attendance':
                 success = self.data_manager.clear_all_attendance()
                 response = json.dumps({
                     "status": "success" if success else "error",
                     "command": command
-                })
+                }) + "\n"
 
             elif command == 'get_status':
                 status = {
@@ -144,10 +215,10 @@ class AttendanceBLEServer:
                     "storage": Config.get_storage_info(),
                     "memory_free": self._get_memory_info()
                 }
-                response = json.dumps(status)
+                response = json.dumps(status) + "\n"
 
             else:
-                response = json.dumps({"status": "error", "message": "Unknown command"})
+                response = json.dumps({"status": "error", "message": "Unknown command"}) + "\n"
 
             # Send response
             if self.connected:
@@ -155,7 +226,7 @@ class AttendanceBLEServer:
 
         except Exception as e:
             print(f"Error handling command: {e}")
-            response = json.dumps({"status": "error", "message": str(e)})
+            response = json.dumps({"status": "error", "message": str(e)}) + "\n"
             if self.connected:
                 self.ble.gatts_notify(self.conn_handle, self.char_handles['command'], response.encode('utf-8'))
 

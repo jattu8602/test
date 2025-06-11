@@ -10,6 +10,7 @@ const ClassManager = dynamic(() => import('@/components/ClassManager'), {
     <div className="animate-pulse bg-gray-200 h-48 rounded-lg"></div>
   ),
 })
+
 const BluetoothManager = dynamic(
   () => import('@/components/BluetoothManager'),
   {
