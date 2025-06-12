@@ -53,17 +53,19 @@ export default function ClassManager({ classes, onUpdate, loading }) {
   return (
     <div className="space-y-8">
       {/* Header Section */}
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 sm:gap-0">
         <div>
-          <h2 className="text-4xl font-black text-slate-800 mb-2">CLASS MANAGEMENT</h2>
-          <p className="text-slate-600 font-medium text-lg">Create classes and manage student enrollment</p>
+          <h2 className="text-3xl sm:text-4xl font-black text-slate-800 mb-2">CLASS MANAGEMENT</h2>
+          <p className="text-slate-600 font-medium text-base sm:text-lg">
+            Create classes and manage student enrollment
+          </p>
         </div>
 
         <button
           onClick={() => setShowCreateForm(true)}
-          className="enhanced-card bg-gradient-to-r from-blue-500 to-blue-600 text-white px-6 py-3 rounded-xl font-semibold flex items-center space-x-2 shadow-lg hover:shadow-xl transition-all duration-300"
+          className="enhanced-card bg-gradient-to-r from-blue-500 to-blue-600 text-white px-4 sm:px-6 py-2 sm:py-3 rounded-xl font-semibold flex items-center justify-center space-x-2 shadow-lg hover:shadow-xl transition-all duration-300 w-full sm:w-auto"
         >
-          <Plus className="w-5 h-5" />
+          <Plus className="w-4 h-4 sm:w-5 sm:h-5" />
           <span>Create Class</span>
         </button>
       </div>
@@ -71,17 +73,17 @@ export default function ClassManager({ classes, onUpdate, loading }) {
       {/* Create Class Modal */}
       {showCreateForm && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="enhanced-card bg-white rounded-2xl p-8 max-w-md w-full shadow-2xl">
-            <h3 className="text-2xl font-bold text-slate-800 mb-6">Create New Class</h3>
+          <div className="enhanced-card bg-white rounded-2xl p-5 sm:p-8 max-w-md w-full shadow-2xl mx-3">
+            <h3 className="text-xl sm:text-2xl font-bold text-slate-800 mb-4 sm:mb-6">Create New Class</h3>
 
-            <form onSubmit={handleCreateClass} className="space-y-6">
+            <form onSubmit={handleCreateClass} className="space-y-4 sm:space-y-6">
               <div>
                 <label className="block text-sm font-semibold text-slate-700 mb-2">Class Name</label>
                 <input
                   type="text"
                   value={newClassName}
                   onChange={(e) => setNewClassName(e.target.value)}
-                  className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-300"
+                  className="w-full px-3 sm:px-4 py-2 sm:py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-300"
                   placeholder="e.g., 5th A, Grade 10B"
                   required
                 />
@@ -93,23 +95,23 @@ export default function ClassManager({ classes, onUpdate, loading }) {
                   type="number"
                   value={newStartingRoll}
                   onChange={(e) => setNewStartingRoll(e.target.value)}
-                  className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-300"
+                  className="w-full px-3 sm:px-4 py-2 sm:py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-300"
                   placeholder="e.g., 1, 101"
                   required
                 />
               </div>
 
-              <div className="flex space-x-3 pt-4">
+              <div className="flex space-x-3 pt-2 sm:pt-4">
                 <button
                   type="button"
                   onClick={() => setShowCreateForm(false)}
-                  className="flex-1 px-4 py-3 border border-slate-200 text-slate-600 rounded-xl font-semibold hover:bg-slate-50 transition-all duration-300"
+                  className="flex-1 px-3 sm:px-4 py-2 sm:py-3 border border-slate-200 text-slate-600 rounded-xl font-semibold hover:bg-slate-50 transition-all duration-300"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 px-4 py-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl font-semibold hover:from-blue-600 hover:to-blue-700 transition-all duration-300 shadow-lg"
+                  className="flex-1 px-3 sm:px-4 py-2 sm:py-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl font-semibold hover:from-blue-600 hover:to-blue-700 transition-all duration-300 shadow-lg"
                 >
                   Create Class
                 </button>
@@ -120,11 +122,11 @@ export default function ClassManager({ classes, onUpdate, loading }) {
       )}
 
       {/* Classes Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">
         {classes.map((classItem) => (
           <div
             key={classItem.id}
-            className="enhanced-card bg-white rounded-2xl p-6 shadow-xl border border-slate-100 relative overflow-hidden"
+            className="enhanced-card bg-white rounded-2xl p-4 sm:p-6 shadow-xl border border-slate-100 relative overflow-hidden"
           >
             {/* Background Pattern */}
             <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-blue-50 to-purple-50 rounded-full -translate-y-16 translate-x-16 opacity-50"></div>
@@ -196,17 +198,17 @@ export default function ClassManager({ classes, onUpdate, loading }) {
 
         {/* Empty State */}
         {classes.length === 0 && !loading && (
-          <div className="col-span-full text-center py-16">
-            <div className="w-24 h-24 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-6">
-              <BookOpen className="w-12 h-12 text-slate-400" />
+          <div className="col-span-full text-center py-8 sm:py-16">
+            <div className="w-16 h-16 sm:w-24 sm:h-24 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4 sm:mb-6">
+              <BookOpen className="w-8 h-8 sm:w-12 sm:h-12 text-slate-400" />
             </div>
-            <h3 className="text-xl font-bold text-slate-600 mb-2">No Classes Yet</h3>
-            <p className="text-slate-500 mb-6">Create your first class to get started</p>
+            <h3 className="text-lg sm:text-xl font-bold text-slate-600 mb-2">No Classes Yet</h3>
+            <p className="text-slate-500 mb-4 sm:mb-6">Create your first class to get started</p>
             <button
               onClick={() => setShowCreateForm(true)}
-              className="enhanced-card bg-gradient-to-r from-blue-500 to-blue-600 text-white px-6 py-3 rounded-xl font-semibold inline-flex items-center space-x-2 shadow-lg"
+              className="enhanced-card bg-gradient-to-r from-blue-500 to-blue-600 text-white px-4 sm:px-6 py-2 sm:py-3 rounded-xl font-semibold inline-flex items-center space-x-2 shadow-lg"
             >
-              <Plus className="w-5 h-5" />
+              <Plus className="w-4 h-4 sm:w-5 sm:h-5" />
               <span>Create First Class</span>
             </button>
           </div>

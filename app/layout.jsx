@@ -29,6 +29,7 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en" className="h-full">
       <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
 
@@ -39,7 +40,7 @@ export default function RootLayout({ children }) {
         <meta httpEquiv="Permissions-Policy" content="bluetooth=*" />
       </head>
       <body
-        className={`${poppins.variable} antialiased h-full bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50`}
+        className={`${poppins.variable} antialiased h-full bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 overflow-x-hidden`}
         suppressHydrationWarning={true}
       >
         <div id="root" className="h-full">
@@ -48,8 +49,8 @@ export default function RootLayout({ children }) {
 
         <noscript>
           <div className="fixed inset-0 bg-red-50 flex items-center justify-center">
-            <div className="text-center p-8">
-              <h2 className="text-xl font-bold text-red-800 mb-4">JavaScript Required</h2>
+            <div className="text-center p-4 sm:p-8">
+              <h2 className="text-lg sm:text-xl font-bold text-red-800 mb-4">JavaScript Required</h2>
               <p className="text-red-600">
                 This application requires JavaScript to function properly. Please enable JavaScript in your browser
                 settings.

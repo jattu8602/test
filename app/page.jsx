@@ -26,7 +26,8 @@ const LoadingSpinner = ({ message = "Loading..." }) => (
         <div className="animate-spin rounded-full h-16 w-16 border-4 border-blue-200 border-t-blue-600 mx-auto"></div>
         <div className="absolute inset-0 rounded-full bg-blue-100 opacity-20 animate-ping"></div>
       </div>
-      <p className="mt-6 text-slate-600 font-medium text-lg">{message}</p>
+      <p className="mt-6 text-slate-600 font-medium text-base sm:text-lg">{message}</p>
+
     </div>
   </div>
 )
@@ -46,18 +47,19 @@ const Header = ({ bluetoothSupported, classCount }) => (
     ></div>
 
     <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-      <div className="flex justify-between items-center py-12">
-        <div className="text-white">
-          <h1 className="text-5xl font-black tracking-tight mb-3">
-            ESP32 ATTENDANCE
-            <span className="block text-4xl font-light text-blue-200">SYSTEM</span>
-          </h1>
-          <p className="text-blue-100 text-lg font-medium max-w-md">
-            Next-generation Bluetooth-enabled attendance management
-          </p>
-        </div>
+  <div className="flex flex-col md:flex-row justify-between items-start md:items-center py-12 space-y-6 md:space-y-0">
+    <div className="text-white">
+      <h1 className="text-4xl sm:text-5xl font-black tracking-tight mb-2 sm:mb-3">
+        ESP32 ATTENDANCE
+        <span className="block text-3xl sm:text-4xl font-light text-blue-200">SYSTEM</span>
+      </h1>
+      <p className="text-blue-100 text-base sm:text-lg font-medium max-w-md">
+        Next-generation Bluetooth-enabled attendance management
+      </p>
+    </div>
 
-        <div className="flex items-center space-x-6">
+    <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-4 sm:space-y-0 sm:space-x-6 w-full sm:w-auto">
+
           {!bluetoothSupported ? (
             <div className="glass-morphism px-4 py-2 rounded-full flex items-center space-x-2 text-red-200">
               <WifiOff className="w-5 h-5" />
@@ -115,7 +117,7 @@ const Navigation = ({ activeTab, bluetoothSupported, onTabChange }) => {
     <div className="relative -mt-6 z-10">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="bg-white/80 backdrop-blur-lg rounded-2xl shadow-2xl border border-white/20 p-2">
-          <nav className="flex space-x-2">
+          <nav className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
             {tabs.map((tab) => {
               const Icon = tab.icon
               const isActive = activeTab === tab.id
@@ -245,6 +247,7 @@ export default function Home() {
           <div className="text-red-500 text-6xl mb-4">⚠️</div>
           <h2 className="text-2xl font-bold text-slate-800 mb-4">System Error</h2>
           <p className="text-slate-600 mb-6">{error}</p>
+
           <button
             onClick={loadClasses}
             className="px-6 py-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl font-semibold hover:from-blue-600 hover:to-blue-700 transition-all duration-300 shadow-lg hover:shadow-xl transform hover:scale-105"
@@ -262,7 +265,7 @@ export default function Home() {
 
       <Navigation activeTab={activeTab} bluetoothSupported={bluetoothSupported} onTabChange={handleTabChange} />
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
         {activeTab === "classes" && <ClassManager classes={classes} onUpdate={handleClassesUpdate} loading={loading} />}
 
         {activeTab === "bluetooth" && bluetoothSupported && (
