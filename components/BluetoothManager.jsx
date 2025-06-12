@@ -163,19 +163,40 @@ export default function BluetoothManager({
         })),
       }))
 
+      console.log('🚀 Starting data sync to ESP32...')
+      console.log(
+        `📊 Syncing ${esp32Data.length} classes with ${esp32Data.reduce(
+          (total, cls) => total + cls.students.length,
+          0
+        )} total students`
+      )
+
       await syncDataToESP32(esp32Data)
       setSyncedData(esp32Data)
 
       // Refresh device info and storage info after sync
-      const status = await bluetoothManager.getDeviceStatus()
-      setDeviceInfo(status)
-      await refreshStorageInfo()
+      try {
+        const status = await bluetoothManager.getDeviceStatus()
+        if (status) {
+          setDeviceInfo(status)
+          onDeviceInfoUpdate?.(status)
+        }
+      } catch (statusError) {
+        console.warn('Failed to refresh device status after sync:', statusError)
+      }
 
-      alert('Data synced successfully to ESP32!')
+      try {
+        await refreshStorageInfo()
+      } catch (storageError) {
+        console.warn('Failed to refresh storage info after sync:', storageError)
+      }
+
+      console.log('✅ Data sync completed successfully!')
+      // Don't show alert, just clear error to indicate success
+      setError(null)
     } catch (error) {
-      console.error('Sync failed:', error)
-      setError(error.message)
-      alert('Failed to sync data: ' + error.message)
+      console.error('❌ Sync failed:', error)
+      setError(`Sync failed: ${error.message}`)
     } finally {
       setLoading(false)
     }
@@ -188,11 +209,17 @@ export default function BluetoothManager({
     setError(null)
 
     try {
+      console.log('📥 Starting attendance download from ESP32...')
       const attendance = await getESP32AttendanceData()
+
+      console.log('📊 Download completed:', attendance)
       setAttendanceData(attendance)
+
+      // Clear error to indicate success
+      setError(null)
     } catch (error) {
-      console.error('Failed to download attendance:', error)
-      setError(`Download error: ${error.message}`)
+      console.error('❌ Download failed:', error)
+      setError(`Download failed: ${error.message}`)
     } finally {
       setLoading(false)
     }
@@ -428,6 +455,11 @@ export default function BluetoothManager({
                     ✅ {deviceInfo.classes_count} classes currently on ESP32
                   </p>
                 )}
+                {loading && (
+                  <p className="text-sm text-blue-600 mt-1">
+                    🔄 Syncing data to ESP32...
+                  </p>
+                )}
               </div>
               <button
                 onClick={handleSyncData}
@@ -441,12 +473,19 @@ export default function BluetoothManager({
               </button>
             </div>
 
-            {syncedData && (
-              <div className="bg-gray-50 rounded-lg p-4">
-                <h4 className="font-medium mb-2">Last Synced Data:</h4>
-                <pre className="text-xs bg-white p-3 rounded border overflow-auto max-h-40">
-                  {JSON.stringify(syncedData, null, 2)}
-                </pre>
+            {syncedData && !loading && (
+              <div className="bg-green-50 rounded-lg p-4">
+                <h4 className="font-medium text-green-800 mb-2">
+                  ✅ Last Sync Successful:
+                </h4>
+                <p className="text-sm text-green-700">
+                  Synced {syncedData.length} classes with{' '}
+                  {syncedData.reduce(
+                    (total, cls) => total + cls.students.length,
+                    0
+                  )}{' '}
+                  students
+                </p>
               </div>
             )}
           </div>
@@ -465,6 +504,11 @@ export default function BluetoothManager({
                 <p className="text-sm text-gray-600">
                   Retrieve attendance data collected on the device
                 </p>
+                {loading && (
+                  <p className="text-sm text-blue-600 mt-1">
+                    📥 Downloading attendance data...
+                  </p>
+                )}
               </div>
               <button
                 onClick={handleDownloadAttendance}

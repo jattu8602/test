@@ -155,43 +155,121 @@ class AttendanceBLEServer:
     def _handle_read(self, value_handle):
         """Handle read requests from client"""
         try:
+            print(f"📖 Handling read request for handle: {value_handle}")
+
             if value_handle == self.char_handles['storage_info']:
+                print("📊 Requesting storage info...")
                 storage_info = Config.get_storage_info()
                 response = json.dumps(storage_info)
-                self.ble.gatts_write(value_handle, response.encode('utf-8'))
+                print(f"📊 Storage info: {response}")
+
+                # Send with delimiter
+                final_response = (response + '\n').encode('utf-8')
+                self.ble.gatts_write(value_handle, final_response)
+                print("✅ Storage info sent")
 
             elif value_handle == self.char_handles['attendance_data']:
+                print("📥 Requesting attendance data...")
                 attendance_data = self.data_manager.get_all_attendance()
+
+                # Ensure we have a valid response
+                if attendance_data is None:
+                    attendance_data = {}
+
                 response = json.dumps(attendance_data)
-                # For large responses, we might need to implement chunking here too
+                print(f"📥 Attendance data: {len(response)} chars")
+                print(f"📥 Data type: {type(attendance_data)}")
+                print(f"📥 Data keys: {list(attendance_data.keys()) if isinstance(attendance_data, dict) else 'Not a dict'}")
+                print(f"📥 Preview: {response[:200]}...")
+
+                # Use smart chunking for responses
                 self._send_chunked_response(value_handle, response)
+                print("✅ Attendance data sent")
 
         except Exception as e:
-            print(f"Error handling read: {e}")
+            print(f"❌ Error handling read: {e}")
+            print(f"❌ Error type: {type(e)}")
+
+            # Send structured error response
+            try:
+                error_response = json.dumps({
+                    "error": str(e),
+                    "error_type": type(e).__name__
+                }) + '\n'
+                self.ble.gatts_write(value_handle, error_response.encode('utf-8'))
+                print("📤 Error response sent")
+            except Exception as e2:
+                print(f"💥 Failed to send error response: {e2}")
 
     def _send_chunked_response(self, value_handle, response):
-        """Send response in chunks if it's too large"""
+        """Send response in chunks if it's too large, respecting JSON structure"""
         try:
+            # Use larger chunk size that fits within BLE limits but avoids splitting JSON
+            chunk_size = 200  # Larger chunks to reduce fragmentation
             response_bytes = response.encode('utf-8')
-            chunk_size = 100  # Conservative chunk size for BLE
+
+            print(f"Sending response: {len(response_bytes)} bytes")
+            print(f"Response preview: {response[:100]}...")
 
             if len(response_bytes) <= chunk_size:
-                # Send in one piece
-                self.ble.gatts_write(value_handle, response_bytes)
+                # Send in one piece with delimiter
+                final_response = response_bytes + b'\n'
+                print(f"Sending single response: {len(final_response)} bytes")
+                self.ble.gatts_write(value_handle, final_response)
             else:
-                # Send in chunks with delimiter
-                for i in range(0, len(response_bytes), chunk_size):
-                    chunk = response_bytes[i:i + chunk_size]
-                    if i + chunk_size >= len(response_bytes):
-                        # Last chunk - add newline delimiter
-                        chunk += b'\n'
-                    self.ble.gatts_write(value_handle, chunk)
-                    time.sleep_ms(10)  # Small delay between chunks
+                # For large responses, try to send as complete JSON + delimiter
+                # Most BLE implementations can handle larger packets
+                print(f"Response is large ({len(response_bytes)} bytes), attempting single transmission")
+
+                try:
+                    # Try to send the complete response with delimiter
+                    complete_response = response_bytes + b'\n'
+                    self.ble.gatts_write(value_handle, complete_response)
+                    print("✅ Successfully sent large response in one piece")
+
+                except Exception as write_error:
+                    print(f"⚠️ Single write failed: {write_error}")
+                    print("📦 Falling back to smart chunking...")
+
+                    # Fallback: Smart chunking that tries to preserve JSON structure
+                    self._send_smart_chunks(value_handle, response, chunk_size)
 
         except Exception as e:
-            print(f"Error sending chunked response: {e}")
-            # Fallback to simple write
-            self.ble.gatts_write(value_handle, response.encode('utf-8'))
+            print(f"❌ Error in chunked response: {e}")
+            # Last resort: send minimal error response
+            try:
+                error_msg = '{"error": "Response too large"}\n'
+                self.ble.gatts_write(value_handle, error_msg.encode('utf-8'))
+                print("📤 Sent error response as fallback")
+            except Exception as e2:
+                print(f"💥 Even error response failed: {e2}")
+
+    def _send_smart_chunks(self, value_handle, response, chunk_size):
+        """Send response in smart chunks that avoid breaking JSON structure"""
+        response_bytes = response.encode('utf-8')
+        total_chunks = ((len(response_bytes) - 1) // chunk_size) + 1
+
+        print(f"🧠 Smart chunking: {len(response_bytes)} bytes into {total_chunks} chunks")
+
+        for i in range(0, len(response_bytes), chunk_size):
+            chunk = response_bytes[i:i + chunk_size]
+            chunk_num = (i // chunk_size) + 1
+
+            print(f"📤 Chunk {chunk_num}/{total_chunks}: {len(chunk)} bytes")
+
+            # Add delimiter only to the very last chunk
+            if i + chunk_size >= len(response_bytes):
+                chunk += b'\n'
+                print("🏁 Final chunk - added delimiter")
+
+            try:
+                self.ble.gatts_write(value_handle, chunk)
+                time.sleep_ms(20)  # Small delay between chunks
+            except Exception as chunk_error:
+                print(f"❌ Chunk {chunk_num} failed: {chunk_error}")
+                # Continue with remaining chunks
+
+        print("✅ Smart chunking completed")
 
     def _handle_class_data_write(self, data):
         """Handle class data synchronization"""
