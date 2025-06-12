@@ -53,7 +53,15 @@ export async function GET(request) {
 export async function POST(request) {
   try {
     const body = await request.json()
-    const { classId, records } = body
+    const {
+      classId,
+      date,
+      records,
+      totalStudents,
+      presentCount,
+      absentCount,
+      metadata,
+    } = body
 
     if (!classId || !records || !Array.isArray(records)) {
       return NextResponse.json(
@@ -71,25 +79,29 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Class not found' }, { status: 404 })
     }
 
-    // Check if attendance already taken today
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    const tomorrow = new Date(today)
-    tomorrow.setDate(tomorrow.getDate() + 1)
+    // Check if attendance already taken for the specified date (or today if no date provided)
+    const targetDate = date ? new Date(date) : new Date()
+    targetDate.setHours(0, 0, 0, 0)
+    const nextDay = new Date(targetDate)
+    nextDay.setDate(nextDay.getDate() + 1)
 
     const existingAttendance = await prisma.attendance.findFirst({
       where: {
         classId,
         takenAt: {
-          gte: today,
-          lt: tomorrow,
+          gte: targetDate,
+          lt: nextDay,
         },
       },
     })
 
     if (existingAttendance) {
       return NextResponse.json(
-        { error: 'Attendance already taken for this class today' },
+        {
+          error: `Attendance already taken for this class on ${
+            targetDate.toISOString().split('T')[0]
+          }`,
+        },
         { status: 400 }
       )
     }
@@ -97,27 +109,34 @@ export async function POST(request) {
     // Validate records format
     for (const record of records) {
       if (
-        !record.hasOwnProperty('roll') ||
-        !record.hasOwnProperty('name') ||
+        !record.hasOwnProperty('studentRoll') ||
+        !record.hasOwnProperty('studentName') ||
         !record.hasOwnProperty('present')
       ) {
         return NextResponse.json(
           {
             error:
-              'Invalid record format. Each record must have roll, name, and present fields',
+              'Invalid record format. Each record must have studentRoll, studentName, and present fields',
           },
           { status: 400 }
         )
       }
     }
 
-    // Create attendance record
+    // Create attendance record with enhanced data
+    const attendanceData = {
+      classId,
+      records,
+      takenAt: targetDate,
+    }
+
+    // Add optional ESP32 metadata if provided
+    if (metadata) {
+      attendanceData.metadata = metadata
+    }
+
     const attendance = await prisma.attendance.create({
-      data: {
-        classId,
-        records,
-        takenAt: new Date(),
-      },
+      data: attendanceData,
       include: {
         class: {
           include: {

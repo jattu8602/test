@@ -10,7 +10,7 @@ import {
 } from '@/lib/bluetooth'
 
 export default function BluetoothManager({
-  classes,
+  classes = [],
   onClassesUpdate,
   onDeviceInfoUpdate,
   onConnectionChange,
@@ -27,8 +27,10 @@ export default function BluetoothManager({
   useEffect(() => {
     // Set up connection change listener
     bluetoothManager.onConnectionChange = (connected) => {
+      console.log('🔌 Connection state changed:', connected)
       setIsConnected(connected)
       onConnectionChange?.(connected)
+
       if (!connected) {
         setDeviceInfo(null)
         setStorageInfo(null)
@@ -36,24 +38,22 @@ export default function BluetoothManager({
         setSyncedData(null)
         onDeviceInfoUpdate?.(null)
       } else {
-        // Auto-refresh device info when connected
+        // Auto-refresh device info when connected with delay
         setTimeout(async () => {
           try {
-            const status = await bluetoothManager.getDeviceStatus()
-            if (status) {
-              setDeviceInfo(status)
-              onDeviceInfoUpdate?.(status)
-            }
+            console.log('🔄 Auto-refreshing device info after connection...')
+            await refreshAllStatus()
           } catch (error) {
             console.warn('Failed to get initial device status:', error)
           }
-        }, 1000) // Wait 1 second after connection
+        }, 2000) // Wait 2 seconds after connection for ESP32 to be ready
       }
     }
 
     // Set up data received listener with improved JSON parsing
     bluetoothManager.onDataReceived = (characteristic, data) => {
-      console.log('Data received from ESP32:', characteristic, data)
+      console.log('📡 Data received from ESP32:', characteristic, typeof data)
+
       try {
         let parsedData = data
 
@@ -94,14 +94,21 @@ export default function BluetoothManager({
         if (characteristic === 'CLASS_DATA') {
           setSyncedData(parsedData)
           // Auto-refresh device info after sync
-          setTimeout(refreshDeviceInfo, 500)
+          setTimeout(refreshAllStatus, 1000)
         } else if (characteristic === 'COMMAND') {
           // Handle command responses (like get_status)
-          if (parsedData && parsedData.device_name !== undefined) {
+          if (
+            parsedData &&
+            (parsedData.device_name !== undefined ||
+              parsedData.command === 'get_status')
+          ) {
             console.log('📊 Received device status from command:', parsedData)
             setDeviceInfo(parsedData)
             onDeviceInfoUpdate?.(parsedData)
           }
+        } else if (characteristic === 'ATTENDANCE_DATA') {
+          console.log('📋 Received attendance data via notifications')
+          setAttendanceData(parsedData)
         }
 
         // Clear any previous errors if parsing was successful
@@ -118,6 +125,24 @@ export default function BluetoothManager({
     }
   }, [onDeviceInfoUpdate, onConnectionChange])
 
+  // Function to refresh all device status information
+  const refreshAllStatus = async () => {
+    if (!isConnected) return
+
+    console.log('🔄 Refreshing all device status...')
+    const results = await Promise.allSettled([
+      refreshDeviceInfo(),
+      refreshStorageInfo(),
+    ])
+
+    results.forEach((result, index) => {
+      const operation = ['device info', 'storage info'][index]
+      if (result.status === 'rejected') {
+        console.warn(`Failed to refresh ${operation}:`, result.reason)
+      }
+    })
+  }
+
   // Separate function to refresh device info
   const refreshDeviceInfo = async () => {
     if (!isConnected) return
@@ -132,6 +157,19 @@ export default function BluetoothManager({
       }
     } catch (error) {
       console.warn('Failed to refresh device info:', error)
+      throw error
+    }
+  }
+
+  const refreshStorageInfo = async () => {
+    if (!isConnected) return
+
+    try {
+      const info = await getESP32StorageInfo()
+      setStorageInfo(info)
+    } catch (error) {
+      console.warn('Failed to refresh storage info:', error)
+      throw error
     }
   }
 
@@ -141,23 +179,7 @@ export default function BluetoothManager({
 
     try {
       await bluetoothManager.connect()
-
-      // Get device info after connection with improved error handling
-      try {
-        console.log('🔄 Getting initial device status...')
-        await refreshDeviceInfo()
-      } catch (statusError) {
-        console.warn('Failed to get device status:', statusError)
-        // Don't fail the connection for this
-      }
-
-      // Get storage info with improved error handling
-      try {
-        await refreshStorageInfo()
-      } catch (storageError) {
-        console.warn('Failed to get storage info:', storageError)
-        // Don't fail the connection for this
-      }
+      console.log('✅ Connected successfully!')
     } catch (error) {
       console.error('Connection failed:', error)
       setError(error.message)
@@ -167,33 +189,66 @@ export default function BluetoothManager({
   }
 
   const handleDisconnect = async () => {
+    setLoading(true)
     try {
       await bluetoothManager.disconnect()
     } catch (error) {
       console.error('Disconnect failed:', error)
+      setError(error.message)
+    } finally {
+      setLoading(false)
     }
   }
 
-  const refreshStorageInfo = async () => {
-    if (!isConnected) return
-
-    try {
-      const storage = await getESP32StorageInfo()
-      setStorageInfo(storage)
-    } catch (error) {
-      console.error('Failed to get storage info:', error)
-      setError(`Storage info error: ${error.message}`)
-    }
-  }
-
-  const handleSyncData = async () => {
+  // Smart Sync Function - Enhanced workflow
+  const handleSmartSync = async () => {
     if (!isConnected || classes.length === 0) return
 
     setLoading(true)
     setError(null)
 
     try {
-      // Prepare data for ESP32
+      console.log('🚀 Starting smart sync workflow...')
+
+      // Step 1: Check if there's existing attendance data before syncing
+      let existingAttendance = null
+      try {
+        console.log('📋 Checking for existing attendance data...')
+        existingAttendance = await getESP32AttendanceData()
+
+        if (existingAttendance && Object.keys(existingAttendance).length > 0) {
+          console.log(
+            '⚠️ Found existing attendance data:',
+            Object.keys(existingAttendance).length,
+            'classes'
+          )
+          setAttendanceData(existingAttendance)
+
+          // Ask user what to do with existing data
+          const userChoice = confirm(
+            `Found attendance data for ${
+              Object.keys(existingAttendance).length
+            } classes on ESP32.\n\n` +
+              'Would you like to:\n' +
+              '• OK: Download and save existing data first, then sync new classes\n' +
+              '• Cancel: Skip download and sync new classes (existing data will be overwritten)'
+          )
+
+          if (userChoice) {
+            console.log('👤 User chose to save existing attendance data first')
+            // We'll handle this data later in the download section
+          } else {
+            console.log(
+              '👤 User chose to skip existing data and sync new classes'
+            )
+            existingAttendance = null
+          }
+        }
+      } catch (error) {
+        console.warn('Could not check existing attendance:', error)
+      }
+
+      // Step 2: Prepare and sync new class data to ESP32
       const esp32Data = classes.map((classItem) => ({
         id: classItem.id,
         name: classItem.name,
@@ -203,9 +258,9 @@ export default function BluetoothManager({
         })),
       }))
 
-      console.log('🚀 Starting data sync to ESP32...')
+      console.log('📊 Syncing new class data...')
       console.log(
-        `📊 Syncing ${esp32Data.length} classes with ${esp32Data.reduce(
+        `📚 Syncing ${esp32Data.length} classes with ${esp32Data.reduce(
           (total, cls) => total + cls.students.length,
           0
         )} total students`
@@ -214,15 +269,20 @@ export default function BluetoothManager({
       await syncDataToESP32(esp32Data)
       setSyncedData(esp32Data)
 
-      // Auto-refresh all status after successful sync
+      // Step 3: Auto-refresh all status after successful sync
       console.log('🔄 Auto-refreshing status after sync...')
-      await Promise.all([refreshDeviceInfo(), refreshStorageInfo()])
+      await refreshAllStatus()
 
-      console.log('✅ Data sync completed successfully!')
+      // Step 4: If there was existing attendance data, set it for download
+      if (existingAttendance && Object.keys(existingAttendance).length > 0) {
+        setAttendanceData(existingAttendance)
+      }
+
+      console.log('✅ Smart sync completed successfully!')
       setError(null)
     } catch (error) {
-      console.error('❌ Sync failed:', error)
-      setError(`Sync failed: ${error.message}`)
+      console.error('❌ Smart sync failed:', error)
+      setError(`Smart sync failed: ${error.message}`)
     } finally {
       setLoading(false)
     }
@@ -246,69 +306,135 @@ export default function BluetoothManager({
       console.log('📊 Data type:', typeof attendance)
       console.log('📊 Data keys:', Object.keys(attendance || {}))
 
-      setAttendanceData(attendance)
+      if (!attendance || Object.keys(attendance).length === 0) {
+        setError('No attendance data found on ESP32')
+        return
+      }
 
-      // Clear error to indicate success
+      setAttendanceData(attendance)
       setError(null)
     } catch (error) {
       console.error('❌ Download failed:', error)
       console.error('❌ Error details:', error.stack)
       setError(`Download failed: ${error.message}`)
-
-      // Clear attendance data on error
       setAttendanceData(null)
     } finally {
       setLoading(false)
     }
   }
 
-  const handleSaveAttendance = async (classId, records) => {
+  // Save individual class attendance to database and clean ESP32
+  const handleSaveClassToDatabase = async (classId, classData) => {
     setLoading(true)
-    setError(null)
-
     try {
-      console.log(`💾 Saving attendance for class ${classId}...`)
+      console.log('💾 Saving class to database:', classId)
 
+      // Prepare attendance data for database
+      const attendancePayload = {
+        classId: classId,
+        date: new Date().toISOString().split('T')[0], // Today's date
+        records: classData.records.map((record) => ({
+          studentRoll: record.roll,
+          studentName: record.name,
+          present: record.present,
+          timestamp: record.timestamp || new Date().toISOString(),
+        })),
+        totalStudents: classData.total_students,
+        presentCount: classData.records.filter((r) => r.present).length,
+        absentCount: classData.records.filter((r) => !r.present).length,
+        metadata: {
+          source: 'ESP32',
+          esp32Timestamp: classData.timestamp,
+          syncedAt: new Date().toISOString(),
+        },
+      }
+
+      // Save to database
       const response = await fetch('/api/attendance', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          classId,
-          records,
-        }),
+        body: JSON.stringify(attendancePayload),
       })
 
-      const responseData = await response.json()
+      if (!response.ok) {
+        const error = await response.text()
+        throw new Error(`Database save failed: ${error}`)
+      }
 
-      if (response.ok) {
-        console.log('✅ Attendance saved successfully to database')
+      const result = await response.json()
+      console.log('✅ Saved to database:', result)
 
-        // Clear attendance on ESP32 after successful save
+      // Remove this class from local attendance data
+      setAttendanceData((prev) => {
+        if (!prev) return prev
+        const updated = { ...prev }
+        delete updated[classId]
+        return updated
+      })
+
+      // Clear this specific class from ESP32
+      try {
+        await clearESP32Attendance(classId)
+        console.log('🧹 Cleared class from ESP32:', classId)
+      } catch (clearError) {
+        console.warn('Failed to clear ESP32 data:', clearError)
+        // Don't fail the operation if ESP32 clear fails
+      }
+
+      // Refresh device info to show updated attendance counts
+      await refreshAllStatus()
+
+      setError(null)
+      return result
+    } catch (error) {
+      console.error('❌ Failed to save class to database:', error)
+      setError(`Save failed: ${error.message}`)
+      throw error
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Save all attendance classes to database
+  const handleSaveAllToDatabase = async () => {
+    if (!attendanceData || Object.keys(attendanceData).length === 0) return
+
+    setLoading(true)
+    try {
+      const classIds = Object.keys(attendanceData)
+      console.log(
+        '💾 Saving all classes to database:',
+        classIds.length,
+        'classes'
+      )
+
+      const results = []
+      for (const classId of classIds) {
         try {
-          console.log(`🧹 Clearing ESP32 attendance for class ${classId}...`)
-          await clearESP32Attendance(classId)
-          console.log('✅ ESP32 attendance cleared successfully')
-
-          // Refresh attendance data to remove the saved class
-          await handleDownloadAttendance()
-
-          // Update classes to reflect attendance taken
-          onClassesUpdate()
-
-          // Show success message temporarily
-          setError(null)
-        } catch (clearError) {
-          console.warn('⚠️ Failed to clear ESP32 attendance:', clearError)
-          // Still consider it a success since DB save worked
+          const result = await handleSaveClassToDatabase(
+            classId,
+            attendanceData[classId]
+          )
+          results.push({ classId, success: true, result })
+        } catch (error) {
+          console.error(`Failed to save class ${classId}:`, error)
+          results.push({ classId, success: false, error: error.message })
         }
-      } else {
-        throw new Error(responseData.error || 'Failed to save attendance')
+      }
+
+      const successful = results.filter((r) => r.success).length
+      console.log(
+        `✅ Saved ${successful}/${classIds.length} classes to database`
+      )
+
+      if (successful === classIds.length) {
+        setAttendanceData(null) // Clear all if everything was successful
       }
     } catch (error) {
-      console.error('❌ Failed to save attendance:', error)
-      setError(`Save failed: ${error.message}`)
+      console.error('❌ Bulk save failed:', error)
+      setError(`Bulk save failed: ${error.message}`)
     } finally {
       setLoading(false)
     }
@@ -340,51 +466,83 @@ export default function BluetoothManager({
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900">ESP32 Connection</h2>
-          <p className="text-gray-600">
-            Connect to ESP32 device and manage data
-          </p>
-        </div>
-        <div className="flex items-center space-x-3">
-          <div
-            className={`px-3 py-1 rounded-full text-sm ${
-              isConnected
-                ? 'bg-green-100 text-green-800'
-                : 'bg-gray-100 text-gray-800'
-            }`}
-          >
-            {isConnected ? '🟢 Connected' : '🔴 Disconnected'}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex items-center">
+            <span className="text-red-500 text-xl mr-3">⚠️</span>
+            <div>
+              <h3 className="text-red-800 font-medium">Error</h3>
+              <p className="text-red-700 text-sm mt-1">{error}</p>
+            </div>
           </div>
-          {isConnected ? (
-            <button
-              onClick={handleDisconnect}
-              className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700"
-            >
-              Disconnect
-            </button>
-          ) : (
-            <button
-              onClick={handleConnect}
-              disabled={isConnecting}
-              className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50"
-            >
-              {isConnecting ? 'Connecting...' : 'Connect to ESP32'}
-            </button>
-          )}
+        </div>
+      )}
+
+      {/* Connection Section */}
+      <div className="bg-white rounded-lg shadow-sm border p-6">
+        <h2 className="text-xl font-semibold mb-4">🔌 ESP32 Connection</h2>
+
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <div
+              className={`w-3 h-3 rounded-full ${
+                isConnected ? 'bg-green-500' : 'bg-gray-300'
+              }`}
+            ></div>
+            <span className="font-medium">
+              {isConnected ? 'Connected' : 'Disconnected'}
+            </span>
+            {deviceInfo && (
+              <span className="text-sm text-gray-500">
+                ({deviceInfo.device_name})
+              </span>
+            )}
+          </div>
+
+          <div className="flex space-x-3">
+            {!isConnected ? (
+              <button
+                onClick={handleConnect}
+                disabled={isConnecting}
+                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+              >
+                {isConnecting ? (
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                ) : (
+                  <span>📡</span>
+                )}
+                <span>{isConnecting ? 'Connecting...' : 'Connect'}</span>
+              </button>
+            ) : (
+              <button
+                onClick={handleDisconnect}
+                disabled={loading}
+                className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Disconnect
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* System Status Summary */}
+      {/* System Status Dashboard */}
       {isConnected && (
-        <div className="bg-gradient-to-r from-blue-50 to-green-50 border border-blue-200 rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">
-            📋 System Status
-          </h3>
+        <div className="bg-white rounded-lg shadow-sm border p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold">📊 System Status</h3>
+            <button
+              onClick={refreshAllStatus}
+              disabled={loading}
+              className="text-blue-600 hover:text-blue-700 disabled:opacity-50"
+            >
+              🔄 Refresh
+            </button>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="bg-white rounded-lg p-4 border border-gray-200">
+            {/* Local Classes */}
+            <div className="bg-blue-50 rounded-lg p-4">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-gray-600">Local Classes</p>
@@ -392,11 +550,12 @@ export default function BluetoothManager({
                     {classes.length}
                   </p>
                 </div>
-                <div className="text-blue-500 text-2xl">📚</div>
+                <span className="text-3xl">📚</span>
               </div>
             </div>
 
-            <div className="bg-white rounded-lg p-4 border border-gray-200">
+            {/* ESP32 Classes */}
+            <div className="bg-green-50 rounded-lg p-4">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-gray-600">ESP32 Classes</p>
@@ -404,626 +563,299 @@ export default function BluetoothManager({
                     {deviceInfo?.classes_count ?? '—'}
                   </p>
                 </div>
-                <div className="text-green-500 text-2xl">📡</div>
+                <span className="text-3xl">🛡️</span>
               </div>
             </div>
 
-            <div className="bg-white rounded-lg p-4 border border-gray-200">
+            {/* Attendance Ready */}
+            <div className="bg-purple-50 rounded-lg p-4">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-gray-600">Attendance Ready</p>
                   <p className="text-2xl font-bold text-purple-600">
-                    {attendanceData ? Object.keys(attendanceData).length : 0}
+                    {attendanceData ? Object.keys(attendanceData).length : '0'}
                   </p>
                 </div>
-                <div className="text-purple-500 text-2xl">📊</div>
+                <span className="text-3xl">📋</span>
               </div>
             </div>
           </div>
 
-          {/* Sync Status */}
-          <div className="mt-4 flex items-center justify-between">
+          {/* Status Indicators */}
+          <div className="mt-4 flex items-center space-x-6 text-sm">
             <div className="flex items-center space-x-2">
-              {classes.length > 0 &&
-              deviceInfo?.classes_count > 0 &&
-              classes.length === deviceInfo.classes_count ? (
-                <>
-                  <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-                  <span className="text-sm text-green-700 font-medium">
-                    ✅ Data synchronized
-                  </span>
-                </>
-              ) : classes.length > 0 && deviceInfo?.classes_count === 0 ? (
-                <>
-                  <div className="w-3 h-3 bg-yellow-500 rounded-full animate-pulse"></div>
-                  <span className="text-sm text-yellow-700 font-medium">
-                    ⚠️ Sync required
-                  </span>
-                </>
-              ) : (
-                <>
-                  <div className="w-3 h-3 bg-gray-400 rounded-full"></div>
-                  <span className="text-sm text-gray-600">
-                    📋 Ready to sync
-                  </span>
-                </>
-              )}
+              <div
+                className={`w-2 h-2 rounded-full ${
+                  syncedData ? 'bg-green-500' : 'bg-gray-300'
+                }`}
+              ></div>
+              <span className="text-gray-600">
+                {syncedData ? '📚 Data synced' : '📚 Ready to sync'}
+              </span>
             </div>
 
             {storageInfo && (
-              <div className="text-sm text-gray-600">
-                💾 Storage:{' '}
-                {((storageInfo.used / storageInfo.total) * 100).toFixed(1)}%
-                used
+              <div className="flex items-center space-x-2">
+                <div className="w-2 h-2 rounded-full bg-blue-500"></div>
+                <span className="text-gray-600">
+                  💾 Storage:{' '}
+                  {((storageInfo.used / storageInfo.total) * 100).toFixed(1)}%
+                  used
+                </span>
               </div>
             )}
           </div>
         </div>
       )}
 
-      {/* Quick Actions */}
+      {/* Smart Sync and Actions */}
       {isConnected && (
         <div className="bg-white rounded-lg shadow-sm border p-6">
-          <h3 className="text-lg font-semibold mb-4">⚡ Quick Actions</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <h3 className="text-lg font-semibold mb-4">
+            ⚡ Smart Sync & Actions
+          </h3>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
             <button
-              onClick={handleSyncData}
+              onClick={handleSmartSync}
               disabled={loading || classes.length === 0}
-              className="flex items-center justify-center space-x-2 bg-green-600 text-white px-4 py-3 rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center justify-center space-x-2 bg-green-600 text-white px-6 py-4 rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? (
                 <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
               ) : (
-                <span className="text-lg">🔄</span>
+                <span className="text-xl">🚀</span>
               )}
-              <span>{loading ? 'Syncing...' : 'Sync Classes to ESP32'}</span>
+              <span className="font-medium">
+                {loading ? 'Syncing...' : 'Smart Sync Classes'}
+              </span>
             </button>
 
             <button
               onClick={handleDownloadAttendance}
               disabled={loading}
-              className="flex items-center justify-center space-x-2 bg-blue-600 text-white px-4 py-3 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center justify-center space-x-2 bg-blue-600 text-white px-6 py-4 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? (
                 <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
               ) : (
-                <span className="text-lg">📥</span>
+                <span className="text-xl">📥</span>
               )}
-              <span>{loading ? 'Downloading...' : 'Download Attendance'}</span>
-            </button>
-
-            <button
-              onClick={async () => {
-                setLoading(true)
-                try {
-                  await Promise.all([refreshDeviceInfo(), refreshStorageInfo()])
-                } catch (error) {
-                  console.error('Failed to refresh status:', error)
-                } finally {
-                  setLoading(false)
-                }
-              }}
-              disabled={loading}
-              className="flex items-center justify-center space-x-2 bg-purple-600 text-white px-4 py-3 rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {loading ? (
-                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-              ) : (
-                <span className="text-lg">🔄</span>
-              )}
-              <span>{loading ? 'Refreshing...' : 'Refresh Status'}</span>
+              <span className="font-medium">
+                {loading ? 'Downloading...' : 'Download Attendance'}
+              </span>
             </button>
           </div>
 
-          {/* Action Tips */}
-          <div className="mt-4 bg-gray-50 rounded-lg p-4">
-            <h4 className="text-sm font-medium text-gray-700 mb-2">💡 Tips:</h4>
-            <ul className="text-sm text-gray-600 space-y-1">
+          {/* Smart Sync Explanation */}
+          <div className="bg-blue-50 rounded-lg p-4">
+            <h4 className="font-medium text-blue-800 mb-2">
+              🧠 Smart Sync Workflow:
+            </h4>
+            <ul className="text-sm text-blue-700 space-y-1">
               <li>
-                • <strong>Sync Classes:</strong> Send your class data to ESP32
-                before taking attendance
+                • <strong>Step 1:</strong> Checks for existing attendance data
+                on ESP32
               </li>
               <li>
-                • <strong>Download Attendance:</strong> Get attendance records
-                from ESP32 after taking attendance
+                • <strong>Step 2:</strong> Prompts to save existing data before
+                syncing new classes
               </li>
               <li>
-                • <strong>Refresh Status:</strong> Update device information and
-                storage details
+                • <strong>Step 3:</strong> Syncs your local classes to ESP32 for
+                attendance
+              </li>
+              <li>
+                • <strong>Step 4:</strong> Auto-refreshes device status and
+                counts
+              </li>
+              <li>
+                • <strong>Step 5:</strong> Makes any existing attendance ready
+                for download
               </li>
             </ul>
           </div>
         </div>
       )}
 
-      {/* Error Display */}
-      {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-          <div className="flex">
-            <div className="flex-shrink-0">
-              <svg
-                className="h-5 w-5 text-red-400"
-                viewBox="0 0 20 20"
-                fill="currentColor"
-              >
-                <path
-                  fillRule="evenodd"
-                  d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
-                  clipRule="evenodd"
-                />
-              </svg>
-            </div>
-            <div className="ml-3">
-              <h3 className="text-sm font-medium text-red-800">Error</h3>
-              <div className="mt-2 text-sm text-red-700">
-                <p>{error}</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Connection Instructions */}
-      {!isConnected && (
-        <div className="space-y-4">
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
-            <h3 className="text-lg font-medium text-blue-900 mb-3">
-              🔗 Connection Instructions
-            </h3>
-            <ol className="list-decimal list-inside space-y-2 text-blue-800">
-              <li>
-                Make sure your ESP32 is powered on and running the attendance
-                firmware
-              </li>
-              <li>Ensure Bluetooth is enabled on your device</li>
-              <li>
-                Click "Connect to ESP32" and select "ESP32-Attendance" from the
-                device list
-              </li>
-              <li>Wait for the connection to establish</li>
-            </ol>
-          </div>
-
-          {/* Complete Workflow Guide */}
-          <div className="bg-white border border-gray-200 rounded-lg p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">
-              📋 Complete Workflow Guide
-            </h3>
-
-            <div className="space-y-6">
-              {/* Step 1 */}
-              <div className="flex items-start space-x-4">
-                <div className="flex-shrink-0 w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center text-sm font-semibold">
-                  1
-                </div>
-                <div>
-                  <h4 className="font-medium text-gray-900">
-                    Prepare Classes & Students
-                  </h4>
-                  <p className="text-sm text-gray-600 mt-1">
-                    Go to "Class Management" tab and create your classes with
-                    students. Each student gets an auto-generated roll number.
-                  </p>
-                </div>
-              </div>
-
-              {/* Step 2 */}
-              <div className="flex items-start space-x-4">
-                <div className="flex-shrink-0 w-8 h-8 bg-green-600 text-white rounded-full flex items-center justify-center text-sm font-semibold">
-                  2
-                </div>
-                <div>
-                  <h4 className="font-medium text-gray-900">
-                    Connect & Sync to ESP32
-                  </h4>
-                  <p className="text-sm text-gray-600 mt-1">
-                    Connect to your ESP32 device, then click "Sync Classes to
-                    ESP32" to transfer all class and student data.
-                  </p>
-                </div>
-              </div>
-
-              {/* Step 3 */}
-              <div className="flex items-start space-x-4">
-                <div className="flex-shrink-0 w-8 h-8 bg-purple-600 text-white rounded-full flex items-center justify-center text-sm font-semibold">
-                  3
-                </div>
-                <div>
-                  <h4 className="font-medium text-gray-900">
-                    Take Attendance on ESP32
-                  </h4>
-                  <p className="text-sm text-gray-600 mt-1">
-                    Use your ESP32 device to select classes, navigate through
-                    students, and mark attendance (Present/Absent).
-                  </p>
-                </div>
-              </div>
-
-              {/* Step 4 */}
-              <div className="flex items-start space-x-4">
-                <div className="flex-shrink-0 w-8 h-8 bg-orange-600 text-white rounded-full flex items-center justify-center text-sm font-semibold">
-                  4
-                </div>
-                <div>
-                  <h4 className="font-medium text-gray-900">
-                    Download & Save Attendance
-                  </h4>
-                  <p className="text-sm text-gray-600 mt-1">
-                    Return to web app, click "Download Attendance" to retrieve
-                    data, review it, then "Save to Database" for each class.
-                  </p>
-                </div>
-              </div>
-
-              {/* Step 5 */}
-              <div className="flex items-start space-x-4">
-                <div className="flex-shrink-0 w-8 h-8 bg-red-600 text-white rounded-full flex items-center justify-center text-sm font-semibold">
-                  5
-                </div>
-                <div>
-                  <h4 className="font-medium text-gray-900">
-                    Automatic Cleanup
-                  </h4>
-                  <p className="text-sm text-gray-600 mt-1">
-                    ESP32 attendance data is automatically cleared after
-                    successful database save. Classes remain for next day's
-                    attendance.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-6 p-4 bg-gray-50 rounded-lg">
-              <h4 className="font-medium text-gray-900 mb-2">
-                🎯 Key Benefits:
-              </h4>
-              <ul className="text-sm text-gray-600 space-y-1">
-                <li>
-                  • <strong>Offline Capable:</strong> Take attendance without
-                  internet connection on ESP32
-                </li>
-                <li>
-                  • <strong>Data Safety:</strong> Attendance saved to MongoDB
-                  with timestamps
-                </li>
-                <li>
-                  • <strong>Daily Reset:</strong> Automatic cleanup prevents
-                  duplicate entries
-                </li>
-                <li>
-                  • <strong>Export Ready:</strong> View and export attendance
-                  records anytime
-                </li>
-              </ul>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Device Info */}
-      {isConnected && deviceInfo && (
+      {/* Attendance Data Display and Management */}
+      {attendanceData && Object.keys(attendanceData).length > 0 && (
         <div className="bg-white rounded-lg shadow-sm border p-6">
-          <h3 className="text-lg font-semibold mb-4">Device Information</h3>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <p className="text-sm text-gray-600">Device Name</p>
-              <p className="font-medium">
-                {deviceInfo.device_name || 'ESP32-Attendance'}
-              </p>
-            </div>
-            <div>
-              <p className="text-sm text-gray-600">Classes Count</p>
-              <p className="font-medium">{deviceInfo.classes_count || 0}</p>
-            </div>
-            {deviceInfo.memory_free && (
-              <>
-                <div>
-                  <p className="text-sm text-gray-600">Free Memory</p>
-                  <p className="font-medium">
-                    {formatBytes(deviceInfo.memory_free.free)}
-                  </p>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold">
+              📋 Attendance Data Management
+            </h3>
+            <button
+              onClick={handleSaveAllToDatabase}
+              disabled={loading}
+              className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              💾 Save All to Database
+            </button>
+          </div>
+
+          <div className="space-y-4">
+            {Object.entries(attendanceData).map(([classId, classData]) => {
+              const presentCount =
+                classData.records?.filter((r) => r.present).length || 0
+              const totalStudents =
+                classData.total_students || classData.records?.length || 0
+              const percentage =
+                totalStudents > 0
+                  ? ((presentCount / totalStudents) * 100).toFixed(1)
+                  : 0
+
+              // Find class name from local classes
+              const localClass = classes.find((c) => c.id === classId)
+              const className =
+                localClass?.name || `Class ${classId.substring(0, 8)}`
+
+              return (
+                <div key={classId} className="border rounded-lg p-4 bg-gray-50">
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <h4 className="font-medium text-gray-900">{className}</h4>
+                      <p className="text-sm text-gray-600">
+                        {presentCount}/{totalStudents} present ({percentage}%)
+                      </p>
+                    </div>
+                    <button
+                      onClick={() =>
+                        handleSaveClassToDatabase(classId, classData)
+                      }
+                      disabled={loading}
+                      className="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      💾 Save to Database
+                    </button>
+                  </div>
+
+                  {/* Attendance Records Preview */}
+                  {classData.records && classData.records.length > 0 && (
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                      {classData.records.slice(0, 8).map((record, index) => (
+                        <div
+                          key={index}
+                          className={`p-2 rounded text-center ${
+                            record.present
+                              ? 'bg-green-100 text-green-800'
+                              : 'bg-red-100 text-red-800'
+                          }`}
+                        >
+                          <div className="font-medium">{record.name}</div>
+                          <div className="text-xs opacity-75">
+                            Roll {record.roll} •{' '}
+                            {record.present ? 'Present' : 'Absent'}
+                          </div>
+                        </div>
+                      ))}
+
+                      {classData.records.length > 8 && (
+                        <div className="p-2 rounded text-center bg-gray-100 text-gray-600">
+                          +{classData.records.length - 8} more
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
-                <div>
-                  <p className="text-sm text-gray-600">Used Memory</p>
-                  <p className="font-medium">
-                    {formatBytes(deviceInfo.memory_free.allocated)}
-                  </p>
-                </div>
-              </>
-            )}
+              )
+            })}
+          </div>
+
+          <div className="mt-4 bg-yellow-50 rounded-lg p-4">
+            <p className="text-sm text-yellow-800">
+              <strong>💡 Tip:</strong> After saving to database, the attendance
+              data will be automatically cleared from ESP32 to free up space for
+              new attendance records.
+            </p>
           </div>
         </div>
       )}
 
-      {/* Storage Info */}
-      {isConnected && storageInfo && (
+      {/* Storage Information */}
+      {storageInfo && (
         <div className="bg-white rounded-lg shadow-sm border p-6">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-semibold">Storage Information</h3>
+          <h3 className="text-lg font-semibold mb-4">💾 Storage Information</h3>
+
+          <div className="flex items-center mb-2">
+            <div className="flex-1 bg-gray-200 rounded-full h-2 mr-4">
+              <div
+                className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                style={{
+                  width: `${(storageInfo.used / storageInfo.total) * 100}%`,
+                }}
+              ></div>
+            </div>
             <button
               onClick={refreshStorageInfo}
-              className="text-blue-600 hover:text-blue-800 text-sm"
+              disabled={loading}
+              className="text-blue-600 hover:text-blue-700 disabled:opacity-50"
             >
               🔄 Refresh
             </button>
           </div>
-          <div className="space-y-4">
+
+          <div className="grid grid-cols-3 gap-4 text-sm">
+            <div className="text-center">
+              <p className="text-gray-600">Total</p>
+              <p className="font-semibold">
+                {(storageInfo.total / 1024).toFixed(1)} KB
+              </p>
+            </div>
+            <div className="text-center">
+              <p className="text-gray-600">Used</p>
+              <p className="font-semibold">
+                {(storageInfo.used / 1024).toFixed(1)} KB
+              </p>
+            </div>
+            <div className="text-center">
+              <p className="text-gray-600">Free</p>
+              <p className="font-semibold">
+                {((storageInfo.total - storageInfo.used) / 1024).toFixed(1)} KB
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Quick Instructions */}
+      <div className="bg-white rounded-lg shadow-sm border p-6">
+        <h3 className="text-lg font-semibold mb-4">📖 Quick Instructions</h3>
+        <div className="space-y-3 text-sm text-gray-700">
+          <div className="flex items-start space-x-3">
+            <span className="text-lg">1️⃣</span>
             <div>
-              <div className="flex justify-between text-sm mb-1">
-                <span>Storage Usage</span>
-                <span>{storageInfo.percent_used?.toFixed(1)}%</span>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-2">
-                <div
-                  className="bg-blue-600 h-2 rounded-full"
-                  style={{ width: `${storageInfo.percent_used || 0}%` }}
-                ></div>
-              </div>
+              <strong>Connect & Sync:</strong> Connect to ESP32 and use "Smart
+              Sync Classes" to send your class data. This also checks for any
+              existing attendance data and gives you option to save it first.
             </div>
-            <div className="grid grid-cols-3 gap-4 text-sm">
-              <div>
-                <p className="text-gray-600">Total</p>
-                <p className="font-medium">{formatBytes(storageInfo.total)}</p>
-              </div>
-              <div>
-                <p className="text-gray-600">Used</p>
-                <p className="font-medium">{formatBytes(storageInfo.used)}</p>
-              </div>
-              <div>
-                <p className="text-gray-600">Free</p>
-                <p className="font-medium">{formatBytes(storageInfo.free)}</p>
-              </div>
+          </div>
+          <div className="flex items-start space-x-3">
+            <span className="text-lg">2️⃣</span>
+            <div>
+              <strong>Take Attendance:</strong> Use the ESP32 device to take
+              attendance for your classes. The device will store attendance data
+              locally.
+            </div>
+          </div>
+          <div className="flex items-start space-x-3">
+            <span className="text-lg">3️⃣</span>
+            <div>
+              <strong>Download & Save:</strong> Use "Download Attendance" to get
+              attendance data from ESP32. Then save individual classes or all
+              classes to your database.
+            </div>
+          </div>
+          <div className="flex items-start space-x-3">
+            <span className="text-lg">4️⃣</span>
+            <div>
+              <strong>Auto-Cleanup:</strong> After saving to database,
+              attendance data is automatically cleared from ESP32 to make space
+              for new records.
             </div>
           </div>
         </div>
-      )}
-
-      {/* Data Sync Section */}
-      {isConnected && (
-        <div className="bg-white rounded-lg shadow-sm border p-6">
-          <h3 className="text-lg font-semibold mb-4">Data Synchronization</h3>
-
-          <div className="space-y-4">
-            <div className="flex justify-between items-center">
-              <div>
-                <p className="font-medium">Sync Classes to ESP32</p>
-                <p className="text-sm text-gray-600">
-                  Send {classes.length} classes with all student data to ESP32
-                </p>
-                {deviceInfo && deviceInfo.classes_count > 0 && (
-                  <p className="text-sm text-green-600 font-medium mt-1">
-                    ✅ {deviceInfo.classes_count} classes currently on ESP32
-                  </p>
-                )}
-                {loading && (
-                  <p className="text-sm text-blue-600 mt-1">
-                    🔄 Syncing data to ESP32...
-                  </p>
-                )}
-              </div>
-              <button
-                onClick={handleSyncData}
-                disabled={loading || classes.length === 0}
-                className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center space-x-2"
-              >
-                {loading && (
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                )}
-                <span>{loading ? 'Syncing...' : 'Sync Data'}</span>
-              </button>
-            </div>
-
-            {syncedData && !loading && (
-              <div className="bg-green-50 rounded-lg p-4">
-                <h4 className="font-medium text-green-800 mb-2">
-                  ✅ Last Sync Successful:
-                </h4>
-                <p className="text-sm text-green-700">
-                  Synced {syncedData.length} classes with{' '}
-                  {syncedData.reduce(
-                    (total, cls) => total + cls.students.length,
-                    0
-                  )}{' '}
-                  students
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Attendance Management */}
-      {isConnected && (
-        <div className="bg-white rounded-lg shadow-sm border p-6">
-          <h3 className="text-lg font-semibold mb-4">
-            📊 Attendance Management
-          </h3>
-
-          <div className="space-y-4">
-            <div className="flex justify-between items-center">
-              <div>
-                <p className="font-medium">Download Attendance from ESP32</p>
-                <p className="text-sm text-gray-600">
-                  Retrieve attendance data collected on the device
-                </p>
-                {loading && (
-                  <p className="text-sm text-blue-600 mt-1">
-                    📥 Downloading attendance data...
-                  </p>
-                )}
-              </div>
-              <button
-                onClick={handleDownloadAttendance}
-                disabled={loading}
-                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center space-x-2"
-              >
-                {loading && (
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                )}
-                <span>
-                  {loading ? 'Downloading...' : 'Download Attendance'}
-                </span>
-              </button>
-            </div>
-
-            {/* Attendance Data Display */}
-            {attendanceData && Object.keys(attendanceData).length > 0 && (
-              <div className="space-y-4">
-                <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                  <h4 className="font-medium text-green-800 mb-2">
-                    ✅ Attendance Data Retrieved from ESP32
-                  </h4>
-                  <p className="text-sm text-green-700">
-                    Found attendance data for{' '}
-                    {Object.keys(attendanceData).length} class(es). Review and
-                    save to database below.
-                  </p>
-                </div>
-
-                <div className="grid gap-4">
-                  {Object.entries(attendanceData).map(([classId, data]) => {
-                    const classInfo = classes.find((c) => c.id === classId)
-                    const stats = calculateAttendanceStats(data.records || [])
-
-                    return (
-                      <div
-                        key={classId}
-                        className="bg-gray-50 border rounded-lg p-6"
-                      >
-                        {/* Class Header */}
-                        <div className="flex justify-between items-start mb-4">
-                          <div className="flex-1">
-                            <h5 className="text-lg font-semibold text-gray-900">
-                              📚 {classInfo?.name || `Class ${classId}`}
-                            </h5>
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-2 text-sm">
-                              <div className="bg-white rounded p-2 text-center">
-                                <div className="font-semibold text-green-600">
-                                  {stats.present}
-                                </div>
-                                <div className="text-gray-600">Present</div>
-                              </div>
-                              <div className="bg-white rounded p-2 text-center">
-                                <div className="font-semibold text-red-600">
-                                  {stats.absent}
-                                </div>
-                                <div className="text-gray-600">Absent</div>
-                              </div>
-                              <div className="bg-white rounded p-2 text-center">
-                                <div className="font-semibold text-blue-600">
-                                  {stats.total}
-                                </div>
-                                <div className="text-gray-600">Total</div>
-                              </div>
-                              <div className="bg-white rounded p-2 text-center">
-                                <div className="font-semibold text-purple-600">
-                                  {stats.percentage}%
-                                </div>
-                                <div className="text-gray-600">Attendance</div>
-                              </div>
-                            </div>
-                          </div>
-
-                          <button
-                            onClick={() =>
-                              handleSaveAttendance(classId, data.records)
-                            }
-                            disabled={loading}
-                            className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center space-x-2 ml-4"
-                          >
-                            {loading && (
-                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                            )}
-                            <span>💾 Save to Database</span>
-                          </button>
-                        </div>
-
-                        {/* Attendance Records */}
-                        <div className="max-h-64 overflow-y-auto">
-                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-                            {(data.records || []).map((record, index) => (
-                              <div
-                                key={index}
-                                className={`flex items-center justify-between p-2 rounded ${
-                                  record.present
-                                    ? 'bg-green-50 border border-green-200'
-                                    : 'bg-red-50 border border-red-200'
-                                }`}
-                              >
-                                <div className="flex items-center space-x-2">
-                                  <span className="font-mono text-sm font-medium">
-                                    #{record.roll}
-                                  </span>
-                                  <span className="text-sm truncate">
-                                    {record.name}
-                                  </span>
-                                </div>
-                                <span
-                                  className={`text-sm font-medium ${
-                                    record.present
-                                      ? 'text-green-600'
-                                      : 'text-red-600'
-                                  }`}
-                                >
-                                  {record.present ? '✅ P' : '❌ A'}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-
-                        {/* Metadata */}
-                        {data.timestamp && (
-                          <div className="mt-4 pt-4 border-t border-gray-200">
-                            <p className="text-xs text-gray-500">
-                              📅 Taken on ESP32:{' '}
-                              {formatDateTime(data.timestamp)}
-                            </p>
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* No Attendance Data */}
-            {attendanceData && Object.keys(attendanceData).length === 0 && (
-              <div className="text-center py-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
-                <div className="text-4xl mb-4">📋</div>
-                <p className="text-gray-600 font-medium">
-                  No attendance data found on ESP32
-                </p>
-                <p className="text-sm text-gray-500 mt-1">
-                  Take attendance on the device first, then download it here
-                </p>
-              </div>
-            )}
-
-            {/* Instructions */}
-            {!attendanceData && (
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <h4 className="font-medium text-blue-800 mb-2">
-                  📋 How to use:
-                </h4>
-                <ol className="text-sm text-blue-700 space-y-1 list-decimal list-inside">
-                  <li>Take attendance on your ESP32 device</li>
-                  <li>Click "Download Attendance" to retrieve data</li>
-                  <li>Review the attendance records for each class</li>
-                  <li>
-                    Click "Save to Database" for each class to store in MongoDB
-                  </li>
-                  <li>
-                    ESP32 data will be automatically cleared after successful
-                    save
-                  </li>
-                </ol>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      </div>
     </div>
   )
 }
