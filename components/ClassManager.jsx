@@ -1,12 +1,16 @@
 "use client"
 
 import { useState } from "react"
-import { Plus, Users, Trash2, UserPlus, BookOpen } from "lucide-react"
+import { Plus, Users, Trash2, UserPlus, BookOpen,X} from "lucide-react"
 
 export default function ClassManager({ classes, onUpdate, loading }) {
   const [showCreateForm, setShowCreateForm] = useState(false)
+  const [showStudentForm, setShowStudentForm] = useState(false)
+  const [selectedClassId, setSelectedClassId] = useState(null)
   const [newClassName, setNewClassName] = useState("")
   const [newStartingRoll, setNewStartingRoll] = useState("")
+   const [newStudentName, setNewStudentName] = useState("")
+  const [newStudentRoll, setNewStudentRoll] = useState("")
 
   const handleCreateClass = async (e) => {
     e.preventDefault()
@@ -49,6 +53,62 @@ export default function ClassManager({ classes, onUpdate, loading }) {
       console.error("Error deleting class:", error)
     }
   }
+  const handleAddStudent = async (e) => {
+    e.preventDefault()
+
+    try {
+      const response = await fetch(`/api/classes/${selectedClassId}/students`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: newStudentName,
+          rollNumber: Number.parseInt(newStudentRoll),
+        }),
+      })
+
+      if (response.ok) {
+        setNewStudentName("")
+        setNewStudentRoll("")
+        setShowStudentForm(false)
+        setSelectedClassId(null)
+        onUpdate()
+      }
+    } catch (error) {
+      console.error("Error adding student:", error)
+    }
+  }
+
+  const handleDeleteStudent = async (classId, studentId) => {
+    if (!confirm("Are you sure you want to remove this student?")) return
+
+    try {
+      const response = await fetch(`/api/classes/${classId}/students/${studentId}`, {
+        method: "DELETE",
+      })
+
+      if (response.ok) {
+        onUpdate()
+      }
+    } catch (error) {
+      console.error("Error removing student:", error)
+    }
+  }
+
+  const openStudentForm = (classId) => {
+    setSelectedClassId(classId)
+    setShowStudentForm(true)
+
+    // Auto-generate next roll number
+    const classItem = classes.find((c) => c.id === classId)
+    if (classItem && classItem.students && classItem.students.length > 0) {
+      const maxRoll = Math.max(...classItem.students.map((s) => s.rollNumber))
+      setNewStudentRoll((maxRoll + 1).toString())
+    } else if (classItem) {
+      setNewStudentRoll(classItem.startingRoll.toString())
+    }
+  }
 
   return (
     <div className="space-y-8">
@@ -74,7 +134,15 @@ export default function ClassManager({ classes, onUpdate, loading }) {
       {showCreateForm && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="enhanced-card bg-white rounded-2xl p-5 sm:p-8 max-w-md w-full shadow-2xl mx-3">
-            <h3 className="text-xl sm:text-2xl font-bold text-slate-800 mb-4 sm:mb-6">Create New Class</h3>
+           <div className="flex justify-between items-center mb-6">
+              <h3 className="text-2xl font-bold text-slate-800">Create New Class</h3>
+              <button
+                onClick={() => setShowCreateForm(false)}
+                className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5 text-slate-500" />
+              </button>
+            </div>
 
             <form onSubmit={handleCreateClass} className="space-y-4 sm:space-y-6">
               <div>
@@ -121,6 +189,75 @@ export default function ClassManager({ classes, onUpdate, loading }) {
         </div>
       )}
 
+       {/* Add Student Modal */}
+      {showStudentForm && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="enhanced-card bg-white rounded-2xl p-8 max-w-md w-full shadow-2xl">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-2xl font-bold text-slate-800">Add New Student</h3>
+              <button
+                onClick={() => {
+                  setShowStudentForm(false)
+                  setSelectedClassId(null)
+                  setNewStudentName("")
+                  setNewStudentRoll("")
+                }}
+                className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5 text-slate-500" />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddStudent} className="space-y-6">
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">Student Name</label>
+                <input
+                  type="text"
+                  value={newStudentName}
+                  onChange={(e) => setNewStudentName(e.target.value)}
+                  className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-300"
+                  placeholder="Enter student name"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">Roll Number</label>
+                <input
+                  type="number"
+                  value={newStudentRoll}
+                  onChange={(e) => setNewStudentRoll(e.target.value)}
+                  className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-300"
+                  placeholder="Enter roll number"
+                  required
+                />
+              </div>
+
+              <div className="flex space-x-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowStudentForm(false)
+                    setSelectedClassId(null)
+                    setNewStudentName("")
+                    setNewStudentRoll("")
+                  }}
+                  className="flex-1 px-4 py-3 border border-slate-200 text-slate-600 rounded-xl font-semibold hover:bg-slate-50 transition-all duration-300"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 px-4 py-3 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-xl font-semibold hover:from-green-600 hover:to-green-700 transition-all duration-300 shadow-lg"
+                >
+                  Add Student
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Classes Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">
         {classes.map((classItem) => (
@@ -147,7 +284,7 @@ export default function ClassManager({ classes, onUpdate, loading }) {
                 </div>
                 <div>
                   <h3 className="text-2xl font-black text-slate-800">{classItem.name}</h3>
-                  <p className="text-sm text-slate-500 font-medium">Roll: {classItem.startingRoll}</p>
+                 <p className="text-sm text-slate-500 font-medium">Starting Roll: {classItem.startingRoll}</p>
                 </div>
               </div>
             </div>
@@ -168,28 +305,48 @@ export default function ClassManager({ classes, onUpdate, loading }) {
             <div className="mb-6">
               <h4 className="text-sm font-bold text-slate-700 mb-3 flex items-center space-x-2">
                 <Users className="w-4 h-4" />
-                <span>Students</span>
+                    <span>Students ({classItem.students?.length || 0})</span>
               </h4>
 
               {classItem.students && classItem.students.length > 0 ? (
-                <div className="space-y-2 max-h-32 overflow-y-auto">
+                <div className="space-y-2 max-h-40 overflow-y-auto">
                   {classItem.students.map((student) => (
-                    <div key={student.id} className="flex items-center justify-between bg-slate-50 rounded-lg p-2">
-                      <span className="text-sm font-medium text-slate-700">{student.name}</span>
-                      <span className="text-xs text-slate-500 bg-white px-2 py-1 rounded">#{student.rollNumber}</span>
+                     <div
+                      key={student.id}
+                      className="flex items-center justify-between bg-slate-50 rounded-lg p-3 group hover:bg-slate-100 transition-colors"
+                    >
+                      <div className="flex items-center space-x-3">
+                        <div className="w-8 h-8 bg-gradient-to-br from-blue-400 to-purple-500 rounded-full flex items-center justify-center text-white text-xs font-bold">
+                          {student.name.charAt(0).toUpperCase()}
+                        </div>
+                        <div>
+                          <span className="text-sm font-semibold text-slate-700">{student.name}</span>
+                          <div className="text-xs text-slate-500">Roll #{student.rollNumber}</div>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => handleDeleteStudent(classItem.id, student.id)}
+                        className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-all duration-200"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
                     </div>
                   ))}
                 </div>
               ) : (
-                <div className="text-center py-4 text-slate-400">
+                <div className="text-center py-6 text-slate-400 bg-slate-50 rounded-lg">
                   <Users className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                  <p className="text-sm font-medium">No students added</p>
+                    <p className="text-sm font-medium">No students added</p>
+                    <p className="text-xs text-slate-400">Click below to add students</p>
                 </div>
               )}
             </div>
 
             {/* Add Student Button */}
-            <button className="w-full bg-gradient-to-r from-slate-100 to-slate-200 text-slate-700 py-3 rounded-xl font-semibold flex items-center justify-center space-x-2 hover:from-blue-50 hover:to-blue-100 hover:text-blue-600 transition-all duration-300">
+             <button
+              onClick={() => openStudentForm(classItem.id)}
+              className="w-full bg-gradient-to-r from-green-500 to-green-600 text-white py-3 rounded-xl font-semibold flex items-center justify-center space-x-2 hover:from-green-600 hover:to-green-700 transition-all duration-300 shadow-lg hover:shadow-xl transform hover:scale-105"
+            >
               <UserPlus className="w-4 h-4" />
               <span>Add Student</span>
             </button>
