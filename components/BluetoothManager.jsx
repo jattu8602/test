@@ -35,6 +35,19 @@ export default function BluetoothManager({
         setAttendanceData(null)
         setSyncedData(null)
         onDeviceInfoUpdate?.(null)
+      } else {
+        // Auto-refresh device info when connected
+        setTimeout(async () => {
+          try {
+            const status = await bluetoothManager.getDeviceStatus()
+            if (status) {
+              setDeviceInfo(status)
+              onDeviceInfoUpdate?.(status)
+            }
+          } catch (error) {
+            console.warn('Failed to get initial device status:', error)
+          }
+        }, 1000) // Wait 1 second after connection
       }
     }
 
@@ -52,12 +65,22 @@ export default function BluetoothManager({
           if (cleanedData) {
             try {
               parsedData = JSON.parse(cleanedData)
+              console.log(
+                '✅ Successfully parsed notification data:',
+                parsedData
+              )
             } catch (parseError) {
               console.warn(
                 'Failed to parse JSON, keeping as string:',
                 parseError.message
               )
-              console.log('Raw data:', JSON.stringify(data))
+              console.log('Raw data length:', data.length)
+              console.log('Cleaned data length:', cleanedData.length)
+              console.log('First 100 chars:', cleanedData.substring(0, 100))
+              console.log(
+                'Last 100 chars:',
+                cleanedData.substring(Math.max(0, cleanedData.length - 100))
+              )
               setError(`JSON Parse Error: ${parseError.message}`)
               return
             }
@@ -70,9 +93,12 @@ export default function BluetoothManager({
         // Handle different characteristics
         if (characteristic === 'CLASS_DATA') {
           setSyncedData(parsedData)
-        } else if (characteristic === 'command') {
+          // Auto-refresh device info after sync
+          setTimeout(refreshDeviceInfo, 500)
+        } else if (characteristic === 'COMMAND') {
           // Handle command responses (like get_status)
           if (parsedData && parsedData.device_name !== undefined) {
+            console.log('📊 Received device status from command:', parsedData)
             setDeviceInfo(parsedData)
             onDeviceInfoUpdate?.(parsedData)
           }
@@ -92,6 +118,23 @@ export default function BluetoothManager({
     }
   }, [onDeviceInfoUpdate, onConnectionChange])
 
+  // Separate function to refresh device info
+  const refreshDeviceInfo = async () => {
+    if (!isConnected) return
+
+    try {
+      console.log('🔄 Refreshing device info...')
+      const status = await bluetoothManager.getDeviceStatus()
+      if (status) {
+        console.log('📊 Updated device info:', status)
+        setDeviceInfo(status)
+        onDeviceInfoUpdate?.(status)
+      }
+    } catch (error) {
+      console.warn('Failed to refresh device info:', error)
+    }
+  }
+
   const handleConnect = async () => {
     setIsConnecting(true)
     setError(null)
@@ -101,11 +144,8 @@ export default function BluetoothManager({
 
       // Get device info after connection with improved error handling
       try {
-        const status = await bluetoothManager.getDeviceStatus()
-        if (status) {
-          setDeviceInfo(status)
-          onDeviceInfoUpdate?.(status)
-        }
+        console.log('🔄 Getting initial device status...')
+        await refreshDeviceInfo()
       } catch (statusError) {
         console.warn('Failed to get device status:', statusError)
         // Don't fail the connection for this
@@ -174,25 +214,11 @@ export default function BluetoothManager({
       await syncDataToESP32(esp32Data)
       setSyncedData(esp32Data)
 
-      // Refresh device info and storage info after sync
-      try {
-        const status = await bluetoothManager.getDeviceStatus()
-        if (status) {
-          setDeviceInfo(status)
-          onDeviceInfoUpdate?.(status)
-        }
-      } catch (statusError) {
-        console.warn('Failed to refresh device status after sync:', statusError)
-      }
-
-      try {
-        await refreshStorageInfo()
-      } catch (storageError) {
-        console.warn('Failed to refresh storage info after sync:', storageError)
-      }
+      // Auto-refresh all status after successful sync
+      console.log('🔄 Auto-refreshing status after sync...')
+      await Promise.all([refreshDeviceInfo(), refreshStorageInfo()])
 
       console.log('✅ Data sync completed successfully!')
-      // Don't show alert, just clear error to indicate success
       setError(null)
     } catch (error) {
       console.error('❌ Sync failed:', error)
@@ -210,16 +236,27 @@ export default function BluetoothManager({
 
     try {
       console.log('📥 Starting attendance download from ESP32...')
+
+      // Clear any existing attendance data first
+      setAttendanceData(null)
+
       const attendance = await getESP32AttendanceData()
 
       console.log('📊 Download completed:', attendance)
+      console.log('📊 Data type:', typeof attendance)
+      console.log('📊 Data keys:', Object.keys(attendance || {}))
+
       setAttendanceData(attendance)
 
       // Clear error to indicate success
       setError(null)
     } catch (error) {
       console.error('❌ Download failed:', error)
+      console.error('❌ Error details:', error.stack)
       setError(`Download failed: ${error.message}`)
+
+      // Clear attendance data on error
+      setAttendanceData(null)
     } finally {
       setLoading(false)
     }
@@ -456,12 +493,25 @@ export default function BluetoothManager({
             </button>
 
             <button
-              onClick={refreshStorageInfo}
+              onClick={async () => {
+                setLoading(true)
+                try {
+                  await Promise.all([refreshDeviceInfo(), refreshStorageInfo()])
+                } catch (error) {
+                  console.error('Failed to refresh status:', error)
+                } finally {
+                  setLoading(false)
+                }
+              }}
               disabled={loading}
               className="flex items-center justify-center space-x-2 bg-purple-600 text-white px-4 py-3 rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <span className="text-lg">🔄</span>
-              <span>Refresh Status</span>
+              {loading ? (
+                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+              ) : (
+                <span className="text-lg">🔄</span>
+              )}
+              <span>{loading ? 'Refreshing...' : 'Refresh Status'}</span>
             </button>
           </div>
 
