@@ -242,6 +242,7 @@ class AttendanceBLEServer:
                 classes = self.data_manager.get_classes()
                 total_students = sum(len(c.get('students', [])) for c in classes)
                 status = {
+                    "command": "get_status",  # Add command field for proper response matching
                     "device_name": Config.BLE_DEVICE_NAME,
                     "classes_count": len(classes),
                     "total_students": total_students,

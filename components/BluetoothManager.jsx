@@ -9,7 +9,12 @@ import {
   clearESP32Attendance,
 } from '@/lib/bluetooth'
 
-export default function BluetoothManager({ classes, onClassesUpdate }) {
+export default function BluetoothManager({
+  classes,
+  onClassesUpdate,
+  onDeviceInfoUpdate,
+  onConnectionChange,
+}) {
   const [isConnected, setIsConnected] = useState(false)
   const [isConnecting, setIsConnecting] = useState(false)
   const [deviceInfo, setDeviceInfo] = useState(null)
@@ -23,24 +28,61 @@ export default function BluetoothManager({ classes, onClassesUpdate }) {
     // Set up connection change listener
     bluetoothManager.onConnectionChange = (connected) => {
       setIsConnected(connected)
+      onConnectionChange?.(connected)
       if (!connected) {
         setDeviceInfo(null)
         setStorageInfo(null)
         setAttendanceData(null)
         setSyncedData(null)
+        onDeviceInfoUpdate?.(null)
       }
     }
 
-    // Set up data received listener
+    // Set up data received listener with improved JSON parsing
     bluetoothManager.onDataReceived = (characteristic, data) => {
       console.log('Data received from ESP32:', characteristic, data)
       try {
-        const parsedData = JSON.parse(data)
+        let parsedData = data
+
+        // Handle both string and already parsed data
+        if (typeof data === 'string') {
+          // Clean the string - remove trailing newlines and whitespace
+          const cleanedData = data.trim()
+
+          if (cleanedData) {
+            try {
+              parsedData = JSON.parse(cleanedData)
+            } catch (parseError) {
+              console.warn(
+                'Failed to parse JSON, keeping as string:',
+                parseError.message
+              )
+              console.log('Raw data:', JSON.stringify(data))
+              setError(`JSON Parse Error: ${parseError.message}`)
+              return
+            }
+          } else {
+            console.warn('Received empty data after cleaning')
+            return
+          }
+        }
+
+        // Handle different characteristics
         if (characteristic === 'CLASS_DATA') {
           setSyncedData(parsedData)
+        } else if (characteristic === 'command') {
+          // Handle command responses (like get_status)
+          if (parsedData && parsedData.device_name !== undefined) {
+            setDeviceInfo(parsedData)
+            onDeviceInfoUpdate?.(parsedData)
+          }
         }
+
+        // Clear any previous errors if parsing was successful
+        setError(null)
       } catch (error) {
-        console.error('Error parsing received data:', error)
+        console.error('Error processing received data:', error)
+        setError(`Data processing error: ${error.message}`)
       }
     }
 
@@ -48,7 +90,7 @@ export default function BluetoothManager({ classes, onClassesUpdate }) {
       bluetoothManager.onConnectionChange = null
       bluetoothManager.onDataReceived = null
     }
-  }, [])
+  }, [onDeviceInfoUpdate, onConnectionChange])
 
   const handleConnect = async () => {
     setIsConnecting(true)
@@ -57,12 +99,25 @@ export default function BluetoothManager({ classes, onClassesUpdate }) {
     try {
       await bluetoothManager.connect()
 
-      // Get device info after connection
-      const status = await bluetoothManager.getDeviceStatus()
-      setDeviceInfo(status)
+      // Get device info after connection with improved error handling
+      try {
+        const status = await bluetoothManager.getDeviceStatus()
+        if (status) {
+          setDeviceInfo(status)
+          onDeviceInfoUpdate?.(status)
+        }
+      } catch (statusError) {
+        console.warn('Failed to get device status:', statusError)
+        // Don't fail the connection for this
+      }
 
-      // Get storage info
-      await refreshStorageInfo()
+      // Get storage info with improved error handling
+      try {
+        await refreshStorageInfo()
+      } catch (storageError) {
+        console.warn('Failed to get storage info:', storageError)
+        // Don't fail the connection for this
+      }
     } catch (error) {
       console.error('Connection failed:', error)
       setError(error.message)
@@ -87,6 +142,7 @@ export default function BluetoothManager({ classes, onClassesUpdate }) {
       setStorageInfo(storage)
     } catch (error) {
       console.error('Failed to get storage info:', error)
+      setError(`Storage info error: ${error.message}`)
     }
   }
 
@@ -136,7 +192,7 @@ export default function BluetoothManager({ classes, onClassesUpdate }) {
       setAttendanceData(attendance)
     } catch (error) {
       console.error('Failed to download attendance:', error)
-      setError(error.message)
+      setError(`Download error: ${error.message}`)
     } finally {
       setLoading(false)
     }

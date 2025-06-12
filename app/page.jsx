@@ -39,7 +39,12 @@ const LoadingSpinner = ({ message = 'Loading...' }) => (
 )
 
 // Memoized header component
-const Header = ({ bluetoothSupported, classCount }) => (
+const Header = ({
+  bluetoothSupported,
+  classCount,
+  deviceInfo,
+  isConnected,
+}) => (
   <header className="bg-white shadow-sm border-b">
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       <div className="flex justify-between items-center py-6">
@@ -57,7 +62,13 @@ const Header = ({ bluetoothSupported, classCount }) => (
               ⚠️ Bluetooth not supported
             </div>
           )}
-          <div className="text-sm text-gray-500">{classCount} classes</div>
+          {isConnected && deviceInfo ? (
+            <div className="text-sm text-gray-500">
+              ESP32: {deviceInfo.classes_count || 0} classes
+            </div>
+          ) : (
+            <div className="text-sm text-gray-500">{classCount} classes</div>
+          )}
         </div>
       </div>
     </div>
@@ -145,6 +156,8 @@ export default function Home() {
   const [classes, setClasses] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [esp32DeviceInfo, setEsp32DeviceInfo] = useState(null)
+  const [isEsp32Connected, setIsEsp32Connected] = useState(false)
 
   // Memoized load classes function
   const loadClasses = useCallback(async () => {
@@ -215,7 +228,12 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <Header bluetoothSupported={bluetoothSupported} classCount={classCount} />
+      <Header
+        bluetoothSupported={bluetoothSupported}
+        classCount={classCount}
+        deviceInfo={esp32DeviceInfo}
+        isConnected={isEsp32Connected}
+      />
 
       <Navigation
         activeTab={activeTab}
@@ -236,6 +254,8 @@ export default function Home() {
           <BluetoothManager
             classes={classes}
             onClassesUpdate={handleClassesUpdate}
+            onDeviceInfoUpdate={setEsp32DeviceInfo}
+            onConnectionChange={setIsEsp32Connected}
           />
         )}
 
